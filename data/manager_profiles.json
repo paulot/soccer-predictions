@@ -1,0 +1,52 @@
+{
+  "John Herdman": {
+    "directness": 7,
+    "width": 8,
+    "tempo": 7
+  },
+  "Walid Regragui": {
+    "directness": 6,
+    "width": 5,
+    "tempo": 4
+  },
+  "Gareth Southgate": {
+    "directness": 3,
+    "width": 6,
+    "tempo": 3
+  },
+  "Carlos Queiroz": {
+    "directness": 9,
+    "width": 4,
+    "tempo": 2
+  },
+  "Zlatko Dalić": {
+    "directness": 4,
+    "width": 5,
+    "tempo": 3
+  },
+  "Roberto Martínez": {
+    "directness": 4,
+    "width": 8,
+    "tempo": 6
+  },
+  "Louis van Gaal": {
+    "directness": 5,
+    "width": 7,
+    "tempo": 3
+  },
+  "Gustavo Alfaro": {
+    "directness": 8,
+    "width": 8,
+    "tempo": 8
+  },
+  "Hajime Moriyasu": {
+    "directness": 6,
+    "width": 5,
+    "tempo": 7
+  },
+  "Luis Enrique": {
+    "directness": 1,
+    "width": 5,
+    "tempo": 5
+  }
+}

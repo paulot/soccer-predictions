@@ -1,0 +1,4 @@
+data/raw_events/
+data/global_passes.csv
+__pycache__/
+*.pyc
