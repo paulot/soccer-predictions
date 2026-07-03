@@ -179,6 +179,16 @@ def extract_features_and_targets(mode='iteration'):
                 mgr_dir = m_profile['directness']
                 mgr_wid = m_profile['width']
                 
+                # Calculate spatial features based on discrete zone centers
+                start_cx = curr_x * 20 + 10
+                start_cy = curr_y * 16 + 8
+                end_cx = end_x * 20 + 10
+                end_cy = end_y * 16 + 8
+                dx = end_cx - start_cx
+                dy = end_cy - start_cy
+                pass_length = np.sqrt(dx**2 + dy**2)
+                pass_angle = np.arctan2(dy, dx)
+                
                 # History features (N=2)
                 history = {}
                 for n in range(1, 3):
@@ -211,6 +221,9 @@ def extract_features_and_targets(mode='iteration'):
                     'manager_width': mgr_wid,
                     'score_differential': p['score_differential'],
                     'possession_duration': p['possession_duration'],
+                    'pass_sequence_index': i,
+                    'pass_length': pass_length,
+                    'pass_angle': pass_angle,
                     **history,
                     'outcome': outcome,
                     'end_zone_x': end_x,

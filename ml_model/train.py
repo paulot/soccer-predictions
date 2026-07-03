@@ -27,15 +27,18 @@ def train_models(model_type='random_forest', mode='iteration'):
     df = pd.read_csv(csv_path)
     
     # Define features
-    feature_cols = [
+    dest_features = [
         'start_zone_x', 'start_zone_y', 'passer_accuracy', 'passer_progressive_ratio',
         'opp_defensive_rate', 'opp_gk_save_ratio', 'manager_directness', 'manager_width',
-        'score_differential', 'possession_duration',
+        'score_differential', 'possession_duration', 'pass_sequence_index',
         'prev_1_zone_x', 'prev_1_zone_y', 'prev_1_success',
         'prev_2_zone_x', 'prev_2_zone_y', 'prev_2_success'
     ]
     
-    X = df[feature_cols]
+    outcome_features = dest_features + ['pass_length', 'pass_angle']
+    
+    X_outcome = df[outcome_features]
+    X_dest = df[dest_features]
     y_outcome = df['outcome'] # 0 = Success, 1 = Turnover
     
     # Flatten destination zone into a single class (0 to 29)
@@ -43,7 +46,7 @@ def train_models(model_type='random_forest', mode='iteration'):
     
     # --- MODEL 1: OUTCOME MODEL (Success vs Turnover) ---
     print("Training Outcome Model...")
-    X_train, X_val, y_train, y_val = train_test_split(X, y_outcome, test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X_outcome, y_outcome, test_size=0.2, random_state=42)
     
     if model_type == 'logistic_regression':
         outcome_model = LogisticRegression(max_iter=1000)
@@ -64,7 +67,7 @@ def train_models(model_type='random_forest', mode='iteration'):
     print("Training Destination Model...")
     # Filter for successful passes only
     success_mask = (y_outcome == 0)
-    X_success = X[success_mask]
+    X_success = X_dest[success_mask]
     y_dest_success = y_dest[success_mask]
     
     X_train_d, X_val_d, y_train_d, y_val_d = train_test_split(X_success, y_dest_success, test_size=0.2, random_state=42)

@@ -95,7 +95,8 @@ class MLTransitionModel(BaseTransitionModel):
             
     def _compile_features(self, current_zone, player_on_ball, player_profiles, 
                           manager_profiles, team_to_manager, player_to_team, 
-                          home_team, away_team, history=None, score_differential=0, possession_duration=0.0):
+                          home_team, away_team, history=None, score_differential=0, possession_duration=0.0,
+                          pass_sequence_index=0, pass_length=0.0, pass_angle=0.0):
         current_team = player_to_team.get(player_on_ball) if player_on_ball else np.random.choice([home_team, away_team])
         
         start_x = int(current_zone.split('_')[1])
@@ -120,6 +121,9 @@ class MLTransitionModel(BaseTransitionModel):
             'manager_width': 5,
             'score_differential': score_differential,
             'possession_duration': possession_duration,
+            'pass_sequence_index': pass_sequence_index,
+            'pass_length': pass_length,
+            'pass_angle': pass_angle,
             'prev_1_zone_x': p1[0],
             'prev_1_zone_y': p1[1],
             'prev_1_success': p1[2],
@@ -130,11 +134,12 @@ class MLTransitionModel(BaseTransitionModel):
 
     def get_transition_probabilities(self, current_zone, player_on_ball, player_profiles, 
                                       manager_profiles, team_to_manager, player_to_team, 
-                                      home_team, away_team, zones, history=None, score_differential=0, possession_duration=0.0):
+                                      home_team, away_team, zones, history=None, score_differential=0, possession_duration=0.0,
+                                      pass_sequence_index=0):
         if history is None:
             history = [(-1, -1, -1), (-1, -1, -1)]
         hist_tuple = tuple(history)
-        cache_key = (player_on_ball, current_zone, hist_tuple, score_differential, round(possession_duration, 1))
+        cache_key = (player_on_ball, current_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index)
         if cache_key in self.cache_probs:
             return self.cache_probs[cache_key]
             
@@ -142,10 +147,11 @@ class MLTransitionModel(BaseTransitionModel):
         mgr_name = team_to_manager.get(current_team)
         mgr = manager_profiles.get(mgr_name, {"directness": 5, "width": 5})
         
-        # Build features
+        # Build features (pass_length and pass_angle are omitted for destination model)
         feats = self._compile_features(current_zone, player_on_ball, player_profiles, 
                                        manager_profiles, team_to_manager, player_to_team, 
-                                       home_team, away_team, history, score_differential, possession_duration)
+                                       home_team, away_team, history, score_differential, possession_duration,
+                                       pass_sequence_index)
         feats['manager_directness'] = mgr.get('directness', 5)
         feats['manager_width'] = mgr.get('width', 5)
         
@@ -153,7 +159,7 @@ class MLTransitionModel(BaseTransitionModel):
         feature_cols = [
             'start_zone_x', 'start_zone_y', 'passer_accuracy', 'passer_progressive_ratio',
             'opp_defensive_rate', 'opp_gk_save_ratio', 'manager_directness', 'manager_width',
-            'score_differential', 'possession_duration',
+            'score_differential', 'possession_duration', 'pass_sequence_index',
             'prev_1_zone_x', 'prev_1_zone_y', 'prev_1_success',
             'prev_2_zone_x', 'prev_2_zone_y', 'prev_2_success'
         ]
@@ -179,11 +185,17 @@ class MLTransitionModel(BaseTransitionModel):
         return zone_probs
 
     def get_turnover_probability(self, current_zone, player_on_ball, player_profiles, 
-                                  team_defensive_profiles, player_to_team, home_team, away_team, history=None, score_differential=0, possession_duration=0.0):
+                                  team_defensive_profiles, player_to_team, home_team, away_team, 
+                                  history=None, score_differential=0, possession_duration=0.0,
+                                  pass_sequence_index=0, next_zone=None):
+        # Fallback if next_zone is not provided
+        if next_zone is None:
+            next_zone = current_zone
+            
         if history is None:
             history = [(-1, -1, -1), (-1, -1, -1)]
         hist_tuple = tuple(history)
-        cache_key = (player_on_ball, current_zone, hist_tuple, score_differential, round(possession_duration, 1))
+        cache_key = (player_on_ball, current_zone, next_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index)
         if cache_key in self.cache_turnover:
             return self.cache_turnover[cache_key]
             
@@ -191,19 +203,31 @@ class MLTransitionModel(BaseTransitionModel):
         defending_team = away_team if current_team == home_team else home_team
         def_rate = team_defensive_profiles.get(defending_team, {}).get(current_zone, 0.0)
         
+        # Calculate simulated pass length and angle
+        cx = int(current_zone.split('_')[1])
+        cy = int(current_zone.split('_')[2])
+        nx = int(next_zone.split('_')[1])
+        ny = int(next_zone.split('_')[2])
+        dx = (nx - cx) * 20
+        dy = (ny - cy) * 16
+        pass_length = np.sqrt(dx**2 + dy**2)
+        pass_angle = np.arctan2(dy, dx)
+        
         # Build features
         feats = self._compile_features(current_zone, player_on_ball, player_profiles, 
                                        {}, {}, player_to_team, 
-                                       home_team, away_team, history, score_differential, possession_duration)
+                                       home_team, away_team, history, score_differential, possession_duration,
+                                       pass_sequence_index, pass_length, pass_angle)
         feats['opp_defensive_rate'] = def_rate
         
         df_feats = pd.DataFrame([feats])
         feature_cols = [
             'start_zone_x', 'start_zone_y', 'passer_accuracy', 'passer_progressive_ratio',
             'opp_defensive_rate', 'opp_gk_save_ratio', 'manager_directness', 'manager_width',
-            'score_differential', 'possession_duration',
+            'score_differential', 'possession_duration', 'pass_sequence_index',
             'prev_1_zone_x', 'prev_1_zone_y', 'prev_1_success',
-            'prev_2_zone_x', 'prev_2_zone_y', 'prev_2_success'
+            'prev_2_zone_x', 'prev_2_zone_y', 'prev_2_success',
+            'pass_length', 'pass_angle'
         ]
         df_feats = df_feats[feature_cols]
         

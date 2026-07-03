@@ -31,6 +31,7 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
         # Each entry is (zone_x, zone_y, success)
         history = [(-1, -1, -1), (-1, -1, -1)]
         possession_duration = 0.0
+        pass_sequence_index = 0
         
         while chain_active:
             # Get players in this zone
@@ -55,7 +56,8 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
                 current_zone, player_on_ball, player_profiles, 
                 manager_profiles, team_to_manager, player_to_team, 
                 home_team, away_team, zones, history=history,
-                score_differential=score_differential, possession_duration=possession_duration
+                score_differential=score_differential, possession_duration=possession_duration,
+                pass_sequence_index=pass_sequence_index
             )
             
             if zone_probs.sum() == 0:
@@ -100,7 +102,8 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
                 turnover_prob = transition_model.get_turnover_probability(
                     current_zone, player_on_ball, player_profiles, 
                     team_defensive_profiles, player_to_team, home_team, away_team, history=history,
-                    score_differential=score_differential, possession_duration=possession_duration
+                    score_differential=score_differential, possession_duration=possession_duration,
+                    pass_sequence_index=pass_sequence_index, next_zone=next_zone
                 )
                 
                 if np.random.rand() < turnover_prob: 
@@ -113,6 +116,7 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
                     curr_y = int(current_zone.split('_')[2])
                     history = [(curr_x, curr_y, 1), history[0]]
                     possession_duration += 3.0
+                    pass_sequence_index += 1
                     
                     current_zone = next_zone
                     
