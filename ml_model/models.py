@@ -243,7 +243,7 @@ class MLTransitionModel(BaseTransitionModel):
                                        pass_sequence_index, 0.0, 0.0, possession_directions)
         
         df_feats = pd.DataFrame([feats])
-        feature_cols = [
+        dest_features = [
             'zone_emb_0', 'zone_emb_1', 'zone_emb_2', 'zone_emb_3',
             'player_emb_0', 'player_emb_1', 'player_emb_2', 'player_emb_3',
             'player_emb_4', 'player_emb_5', 'player_emb_6', 'player_emb_7',
@@ -255,7 +255,7 @@ class MLTransitionModel(BaseTransitionModel):
             'prev_1_zone_emb_0', 'prev_1_zone_emb_1', 'prev_1_zone_emb_2', 'prev_1_zone_emb_3', 'prev_1_success',
             'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success'
         ] + [f'target_def_density_{tx}_{ty}' for tx in range(6) for ty in range(5)]
-        df_feats = df_feats[feature_cols]
+        df_feats = df_feats[dest_features]
         
         if isinstance(self.destination_model, torch.nn.Module):
             with torch.no_grad():
@@ -325,7 +325,7 @@ class MLTransitionModel(BaseTransitionModel):
         feats['opp_defensive_rate'] = def_rate
         
         df_feats = pd.DataFrame([feats])
-        feature_cols = [
+        dest_features = [
             'zone_emb_0', 'zone_emb_1', 'zone_emb_2', 'zone_emb_3',
             'player_emb_0', 'player_emb_1', 'player_emb_2', 'player_emb_3',
             'player_emb_4', 'player_emb_5', 'player_emb_6', 'player_emb_7',
@@ -335,10 +335,11 @@ class MLTransitionModel(BaseTransitionModel):
             'player_role',
             'prev_pass_direction_1', 'prev_pass_direction_2', 'prev_pass_direction_3',
             'prev_1_zone_emb_0', 'prev_1_zone_emb_1', 'prev_1_zone_emb_2', 'prev_1_zone_emb_3', 'prev_1_success',
-            'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success',
-            'pass_length', 'pass_angle'
+            'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success'
         ] + [f'target_def_density_{tx}_{ty}' for tx in range(6) for ty in range(5)]
-        df_feats = df_feats[feature_cols]
+        
+        outcome_features = dest_features + ['pass_length', 'pass_angle']
+        df_feats = df_feats[outcome_features]
         
         if isinstance(self.outcome_model, torch.nn.Module):
             with torch.no_grad():

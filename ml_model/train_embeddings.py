@@ -4,7 +4,7 @@ import pickle
 import pandas as pd
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
-from backtest import TEAM_TO_MANAGER
+from ml_model.backtest import TEAM_TO_MANAGER
 
 def parse_location(loc_val):
     if pd.isnull(loc_val):
