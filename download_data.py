@@ -1,28 +1,28 @@
 import os
+import click
 import pandas as pd
 import numpy as np
 from statsbombpy import sb
 from utils import parse_location, map_coordinates_to_zone
+from typing import Dict, List, Any, Set, Tuple
 
-
-
-def calculate_time_weight(match_date_str, ref_date, decay_lambda):
+def calculate_time_weight(match_date_str: str, ref_date: pd.Timestamp, decay_lambda: float) -> float:
     """Calculates the exponential decay weight based on how recent the match was."""
     try:
         match_dt = pd.to_datetime(match_date_str)
         days_ago = (ref_date - match_dt).days
         # Ensure we don't have negative days if a match is played in the future relative to ref_date
         days_ago = max(0, days_ago)
-        return np.exp(-decay_lambda * days_ago)
-    except:
+        return float(np.exp(-decay_lambda * days_ago))
+    except Exception:
         return 1.0 # Default weight if date parsing fails
 
-def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30", decay_lambda=0.0019):
+def build_self_contained_pipeline(max_matches_per_comp: int = 30, ref_date: str = "2026-06-30", decay_lambda: float = 0.0019) -> None:
     print("Starting Recency-Weighted StatsBomb Data Pipeline...")
     ref_date_dt = pd.to_datetime(ref_date)
     competitions = sb.competitions()
     
-    target_comp_names = [
+    target_comp_names: List[str] = [
         "FIFA World Cup", 
         "UEFA Euro", 
         "Copa America",
@@ -40,18 +40,18 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
     print(f"Found {len(selected_competitions)} competition-seasons matching targets.")
     
     # Storage for weighted stats
-    all_passes = [] # stores tuples: (start_zone, end_zone, event_type, weight)
+    all_passes: List[Dict[str, Any]] = [] # stores dicts: {'start_zone', 'end_zone', 'event_type', 'weight'}
     
-    player_pass_counts = {} # player -> {completions, attempts, progressive} (all weighted)
-    player_shot_counts = {} # player -> {shots, goals} (all weighted)
-    goalkeeper_counts = {}   # goalkeeper -> {shots_faced, goals_conceded} (all weighted)
+    player_pass_counts: Dict[str, Dict[str, float]] = {} # player -> {completions, attempts, progressive} (all weighted)
+    player_shot_counts: Dict[str, Dict[str, float]] = {} # player -> {shots, goals} (all weighted)
+    goalkeeper_counts: Dict[str, Dict[str, float]] = {}   # goalkeeper -> {shots_faced, goals_conceded} (all weighted)
     
-    team_defensive_actions = {} # team -> {zone -> weighted_count}
-    team_weight_sums = {}       # team -> sum of match weights (for normalization)
+    team_defensive_actions: Dict[str, Dict[str, float]] = {} # team -> {zone -> weighted_count}
+    team_weight_sums: Dict[str, float] = {}       # team -> sum of match weights (for normalization)
     
-    manager_stats = {} # manager -> {weighted_directness, weighted_width, weighted_tempo, weight_sum}
+    manager_stats: Dict[str, Dict[str, float]] = {} # manager -> {weighted_directness, weighted_width, weighted_tempo, weight_sum}
     
-    match_count = 0
+    match_count: int = 0
     for _, comp in selected_competitions.iterrows():
         comp_id = comp['competition_id']
         season_id = comp['season_id']
@@ -223,6 +223,7 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
                             manager_stats[manager]['tempo_sum'] += match_tempo * weight
                             manager_stats[manager]['weight_sum'] += weight
                 
+                # Print progress
                 match_count += 1
                 if match_count % 10 == 0:
                     print(f"  Processed {match_count} matches...")
@@ -239,8 +240,8 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
     # --- SAVE 1. Global Baseline Matrix (Weighted) ---
     print("\nCompiling Global Baseline Matrix...")
     df_global_passes = pd.DataFrame(all_passes)
-    zones = [f"Z_{x}_{y}" for x in range(6) for y in range(5)]
-    matrix = pd.DataFrame(0.0, index=zones, columns=zones)
+    zones: List[str] = [f"Z_{x}_{y}" for x in range(6) for y in range(5)]
+    matrix: pd.DataFrame = pd.DataFrame(0.0, index=zones, columns=zones)
     
     # Group by start and end zone, summing the weights
     successful_passes = df_global_passes[df_global_passes['event_type'] == 'Pass']
@@ -254,8 +255,8 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
     print("Saved global baseline matrix.")
     
     # --- SAVE 2. Player Profiles (Passing & Shooting, Weighted) ---
-    player_records = []
-    all_players = set(player_pass_counts.keys()).union(set(player_shot_counts.keys()))
+    player_records: List[Dict[str, Any]] = []
+    all_players: Set[str] = set(player_pass_counts.keys()).union(set(player_shot_counts.keys()))
     for player in all_players:
         pass_stats = player_pass_counts.get(player, {'completions': 0.0, 'attempts': 0.0, 'progressive': 0.0})
         shot_stats = player_shot_counts.get(player, {'shots': 0.0, 'goals': 0.0})
@@ -283,14 +284,14 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
             'shot_conversion': shot_conversion
         })
         
-    df_player_profiles = pd.DataFrame(player_records)
+    df_player_profiles: pd.DataFrame = pd.DataFrame(player_records)
     # Filter out players with low effective sample size (weighted attempts < 5.0)
     df_player_profiles = df_player_profiles[(df_player_profiles['attempts'] >= 5.0) | (df_player_profiles['shots'] >= 1.0)]
     df_player_profiles.to_csv("data/statsbomb_player_profiles.csv", index=False)
     print("Saved player profiles.")
     
     # --- SAVE 3. Goalkeeper Profiles (Weighted) ---
-    gk_records = []
+    gk_records: List[Dict[str, Any]] = []
     for gk, stats in goalkeeper_counts.items():
         faced = stats['shots_faced']
         conceded = stats['goals_conceded']
@@ -303,12 +304,12 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
             'goals_conceded': conceded,
             'save_ratio': save_ratio
         })
-    df_gk = pd.DataFrame(gk_records)
+    df_gk: pd.DataFrame = pd.DataFrame(gk_records)
     df_gk.to_csv("data/goalkeeper_profiles.csv", index=False)
     print("Saved goalkeeper profiles.")
     
     # --- SAVE 4. Team Defensive Profiles (Normalized by sum of match weights) ---
-    def_records = []
+    def_records: List[Dict[str, Any]] = []
     for team, zones_dict in team_defensive_actions.items():
         total_weight = team_weight_sums.get(team, 1.0)
         for zone, count in zones_dict.items():
@@ -318,12 +319,12 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
                 'zone': zone,
                 'defensive_rate': rate
             })
-    df_def = pd.DataFrame(def_records)
+    df_def: pd.DataFrame = pd.DataFrame(def_records)
     df_def.to_csv("data/team_defensive_profiles.csv", index=False)
     print("Saved team defensive profiles.")
     
     # --- SAVE 5. Dynamic Manager Profiles (Weighted & Normalized) ---
-    mgr_records = []
+    mgr_records: List[Dict[str, Any]] = []
     for manager, stats in manager_stats.items():
         w_sum = stats['weight_sum']
         if w_sum > 0:
@@ -349,20 +350,20 @@ def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30"
                 'raw_width': avg_width,
                 'raw_tempo': avg_tempo
             })
-    df_mgr = pd.DataFrame(mgr_records)
+    df_mgr: pd.DataFrame = pd.DataFrame(mgr_records)
     df_mgr.to_csv("data/manager_profiles.csv", index=False)
     print("Saved dynamic manager profiles.")
 
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Download StatsBomb data and compile profiles.")
-    parser.add_argument('--max-matches', type=int, default=30, help="Max matches per competition-season (None for all)")
-    parser.add_argument('--ref-date', type=str, default="2026-06-30", help="Reference date for time decay")
-    parser.add_argument('--decay-lambda', type=float, default=0.0019, help="Lambda parameter for exponential decay")
-    args = parser.parse_args()
-    
+@click.command(help="Download StatsBomb data and compile profiles.")
+@click.option('--max-matches', type=int, default=30, help="Max matches per competition-season (None for all)")
+@click.option('--ref-date', type=str, default="2026-06-30", help="Reference date for time decay")
+@click.option('--decay-lambda', type=float, default=0.0019, help="Lambda parameter for exponential decay")
+def main(max_matches: int, ref_date: str, decay_lambda: float) -> None:
     build_self_contained_pipeline(
-        max_matches_per_comp=args.max_matches,
-        ref_date=args.ref_date,
-        decay_lambda=args.decay_lambda
+        max_matches_per_comp=max_matches,
+        ref_date=ref_date,
+        decay_lambda=decay_lambda
     )
+
+if __name__ == "__main__":
+    main()
