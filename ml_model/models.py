@@ -278,7 +278,7 @@ class MLTransitionModel(BaseTransitionModel):
         
         if isinstance(self.destination_model, torch.nn.Module):
             with torch.no_grad():
-                continuous_cols = [c for c in df_feats.columns if c != 'player_role']
+                continuous_cols = [c for c in df_feats.columns if c not in ['player_role', 'start_zone_x', 'start_zone_y']]
                 df_feats_scaled = df_feats.copy()
                 df_feats_scaled[continuous_cols] = self.destination_scaler.transform(df_feats[continuous_cols])
                 feats_tensor = torch.FloatTensor(df_feats_scaled.values)
@@ -368,7 +368,7 @@ class MLTransitionModel(BaseTransitionModel):
         
         if isinstance(self.outcome_model, torch.nn.Module):
             with torch.no_grad():
-                continuous_cols = [c for c in df_feats.columns if c != 'player_role']
+                continuous_cols = [c for c in df_feats.columns if c not in ['player_role', 'start_zone_x', 'start_zone_y']]
                 df_feats_scaled = df_feats.copy()
                 df_feats_scaled[continuous_cols] = self.outcome_scaler.transform(df_feats[continuous_cols])
                 feats_tensor = torch.FloatTensor(df_feats_scaled.values)

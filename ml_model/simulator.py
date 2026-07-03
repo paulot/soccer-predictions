@@ -37,6 +37,12 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
         time_ratio = p_idx / num_possessions
         
         while chain_active:
+            # Prevent infinite loops (e.g. if turnover probability is 0)
+            if pass_sequence_index >= 50:
+                current_team = away_team if current_team == home_team else home_team
+                chain_active = False
+                break
+                
             # Get players in this zone
             zone_players = get_zone_players(df_events, current_zone)
             

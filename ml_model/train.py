@@ -66,8 +66,8 @@ def train_models(model_type='random_forest', mode='iteration'):
         from sklearn.preprocessing import StandardScaler
         from ml_model.pytorch_models import OutcomeNN
         
-        # Fit and apply scaler only to continuous features
-        continuous_cols = [c for c in X_train.columns if c != 'player_role']
+        # Fit and apply scaler only to continuous features (exclude player_role and start_zone_x/y)
+        continuous_cols = [c for c in X_train.columns if c not in ['player_role', 'start_zone_x', 'start_zone_y']]
         outcome_scaler = StandardScaler()
         
         X_train_scaled = X_train.copy()
@@ -85,13 +85,13 @@ def train_models(model_type='random_forest', mode='iteration'):
         
         outcome_model.train()
         for epoch in range(100):
-            if epoch % 10 == 0:
-                print(f"  Epoch {epoch}", flush=True)
             optimizer.zero_grad()
             outputs = outcome_model(X_train_t)
             loss = criterion(outputs, y_train_t)
             loss.backward()
             optimizer.step()
+            if epoch % 10 == 0:
+                print(f"  Epoch {epoch} | Loss: {loss.item():.4f}", flush=True)
             
         outcome_model.eval()
     else: # Default: random_forest
@@ -135,8 +135,8 @@ def train_models(model_type='random_forest', mode='iteration'):
         from sklearn.preprocessing import StandardScaler
         from ml_model.pytorch_models import DestinationNN
         
-        # Fit and apply scaler only to continuous features
-        continuous_cols_d = [c for c in X_train_d.columns if c != 'player_role']
+        # Fit and apply scaler only to continuous features (exclude player_role and start_zone_x/y)
+        continuous_cols_d = [c for c in X_train_d.columns if c not in ['player_role', 'start_zone_x', 'start_zone_y']]
         dest_scaler = StandardScaler()
         
         X_train_d_scaled = X_train_d.copy()
@@ -153,12 +153,14 @@ def train_models(model_type='random_forest', mode='iteration'):
         optimizer = optim.Adam(dest_model.parameters(), lr=0.005, weight_decay=1e-4)
         
         dest_model.train()
-        for epoch in range(100):
+        for epoch in range(150):
             optimizer.zero_grad()
             outputs = dest_model(X_train_t)
             loss = criterion(outputs, y_train_t)
             loss.backward()
             optimizer.step()
+            if epoch % 10 == 0:
+                print(f"  Epoch {epoch} | Loss: {loss.item():.4f}", flush=True)
             
         dest_model.eval()
     else: # Default: random_forest
@@ -182,6 +184,12 @@ def train_models(model_type='random_forest', mode='iteration'):
     model_dir = "data/models"
     os.makedirs(model_dir, exist_ok=True)
     
+    if model_type == 'neural_network':
+        outcome_model.eval()
+        dest_model.eval()
+        outcome_model = torch.jit.script(outcome_model)
+        dest_model = torch.jit.script(dest_model)
+        
     outcome_path = os.path.join(model_dir, f"{model_type}_{mode}_outcome.pkl")
     dest_path = os.path.join(model_dir, f"{model_type}_{mode}_destination.pkl")
     

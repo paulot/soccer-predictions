@@ -7,7 +7,7 @@ class OutcomeNN(nn.Module):
     Neural Network to predict pass outcome (Success vs Turnover).
     Uses a learnable Entity Embedding for the player role and Dropout.
     """
-    def __init__(self, input_dim, role_idx):
+    def __init__(self, input_dim: int, role_idx: int):
         super(OutcomeNN, self).__init__()
         self.role_idx = role_idx
         self.role_embedding = nn.Embedding(4, 2)
@@ -16,7 +16,7 @@ class OutcomeNN(nn.Module):
         self.fc1 = nn.Linear(input_dim + 1, 64)
         self.fc2 = nn.Linear(64, 32)
         self.fc3 = nn.Linear(32, 1)
-        self.dropout = nn.Dropout(0.3) # Regularization
+        self.dropout = nn.Dropout(0.2) # Regularization
         
     def forward(self, x):
         # Extract and embed role
@@ -35,12 +35,13 @@ class OutcomeNN(nn.Module):
 
 class DestinationNN(nn.Module):
     """
-    Neural Network to predict pass destination zone (0 to 29).
-    Uses Bilinear Spatial Attention: matching a context query vector against
-    30 candidate zone key vectors constructed from spatial coordinates,
-    distance, angle, and opponent defensive pressure.
+    Hybrid Neural Network to predict pass destination zone (0 to 29).
+    Combines:
+    1) A Bilinear Spatial Attention pathway (physical/spatial constraints).
+    2) A Tactical MLP pathway (team-specific and tactical preferences).
+    Optimized with precomputed spatial relations and TorchScript compatibility.
     """
-    def __init__(self, input_dim, role_idx, def_density_start_idx, output_dim=30):
+    def __init__(self, input_dim: int, role_idx: int, def_density_start_idx: int, output_dim: int = 30):
         super(DestinationNN, self).__init__()
         self.role_idx = role_idx
         self.def_density_start_idx = def_density_start_idx
@@ -48,85 +49,112 @@ class DestinationNN(nn.Module):
         
         self.role_embedding = nn.Embedding(4, 2)
         
-        # Context network: projects continuous features + role embedding to a query vector
-        # Input dim of context network = input_dim - 1 (role) - 30 (def densities) + 2 (role emb)
-        context_input_dim = input_dim - 1 - 30 + 2
-        self.context_fc1 = nn.Linear(context_input_dim, 64)
-        self.context_fc2 = nn.Linear(64, 16) # Query size = 16
+        # Precompute context indices to keep (excludes role_idx and the 30 defensive densities)
+        context_indices = [
+            idx for idx in range(input_dim) 
+            if idx != role_idx and not (def_density_start_idx <= idx < def_density_start_idx + 30)
+        ]
+        self.register_buffer('context_indices', torch.LongTensor(context_indices))
         
-        # Zone key network: projects the 5D spatial feature of a zone to a key vector
-        # Spatial features: [norm_x, norm_y, norm_dist, norm_angle, def_pressure]
-        self.zone_fc = nn.Linear(5, 16) # Key size = 16
+        # Precompute static spatial relations between all 30 starting and target zones
+        distances = torch.zeros(30, 30)
+        angles = torch.zeros(30, 30)
+        target_xs = torch.zeros(30)
+        target_ys = torch.zeros(30)
         
-        self.dropout = nn.Dropout(0.3) # Regularization
+        for i in range(30):
+            sx = i // 5
+            sy = i % 5
+            start_cx = sx * 20.0 + 10.0
+            start_cy = sy * 16.0 + 8.0
+            
+            for j in range(30):
+                tx = j // 5
+                ty = j % 5
+                target_cx = tx * 20.0 + 10.0
+                target_cy = ty * 16.0 + 8.0
+                
+                dx = target_cx - start_cx
+                dy = target_cy - start_cy
+                distances[i, j] = torch.sqrt(torch.tensor(dx**2 + dy**2)) / 100.0
+                angles[i, j] = torch.atan2(torch.tensor(dy), torch.tensor(dx)) / 3.14159265
+                
+        for j in range(30):
+            target_xs[j] = (j // 5) / 5.0
+            target_ys[j] = (j % 5) / 4.0
+            
+        self.register_buffer('static_distances', distances)
+        self.register_buffer('static_angles', angles)
+        self.register_buffer('static_target_xs', target_xs)
+        self.register_buffer('static_target_ys', target_ys)
+        
+        # --- Pathway 1: Spatial Attention ---
+        # Input dim of context network = len(context_indices) + 2 (role emb)
+        context_input_dim = len(context_indices) + 2
+        self.context_fc1 = nn.Linear(context_input_dim, 128)
+        self.context_fc2 = nn.Linear(128, 64) # Query size = 64
+        self.zone_fc = nn.Linear(5, 64) # Key size = 64
+        
+        # --- Pathway 2: Tactical MLP ---
+        # Input dim: input_dim - 1 (role) + 2 (role embedding)
+        self.mlp_fc1 = nn.Linear(input_dim + 1, 128)
+        self.mlp_fc2 = nn.Linear(128, 64)
+        self.mlp_fc3 = nn.Linear(64, output_dim)
+        
+        self.dropout = nn.Dropout(0.2) # Regularization
         
     def forward(self, x):
         batch_size = x.shape[0]
         
-        # 1. Extract and embed role
+        # Extract and embed role
         role = x[:, self.role_idx].long()
         role_emb = self.role_embedding(role)
         
-        # 2. Extract starting zone coordinates (first two columns: start_zone_x, start_zone_y)
-        start_x = x[:, 0]
-        start_y = x[:, 1]
+        # --- Pathway 1: Spatial Attention ---
+        # Vectorized lookup of distances and angles
+        start_idx = (x[:, 0] * 5 + x[:, 1]).long()
+        batch_dist = self.static_distances[start_idx]
+        batch_angle = self.static_angles[start_idx]
         
-        # 3. Extract the 30 target defensive densities
+        # Extract the 30 target defensive densities
         def_densities = x[:, self.def_density_start_idx : self.def_density_start_idx + 30]
         
-        # 4. Build context vector (exclude role and the 30 defensive densities)
-        mask = torch.ones(x.shape[1], dtype=torch.bool, device=x.device)
-        mask[self.role_idx] = False
-        mask[self.def_density_start_idx : self.def_density_start_idx + 30] = False
-        
-        x_context = x[:, mask]
+        # Extract context using precomputed indices
+        x_context = x[:, self.context_indices]
         x_context_combined = torch.cat([x_context, role_emb], dim=1)
         
         h_context = F.relu(self.context_fc1(x_context_combined))
         h_context = self.dropout(h_context)
-        query = self.context_fc2(h_context) # Shape: [batch_size, 16]
+        query = self.context_fc2(h_context) # Shape: [batch_size, 64]
         
-        # 5. Build 5D spatial features for all 30 candidate zones
-        zones_spatial = []
-        for j in range(30):
-            tx = j // 5
-            ty = j % 5
-            
-            # Normalized coordinates
-            nx = tx / 5.0
-            ny = ty / 4.0
-            
-            # Start centers
-            start_cx = start_x * 20.0 + 10.0
-            start_cy = start_y * 16.0 + 8.0
-            
-            # Target centers
-            target_cx = tx * 20.0 + 10.0
-            target_cy = ty * 16.0 + 8.0
-            
-            dx = target_cx - start_cx
-            dy = target_cy - start_cy
-            dist = torch.sqrt(dx**2 + dy**2) / 100.0
-            angle = torch.atan2(dy, dx) / 3.14159265
-            
-            # Opponent defensive density in this zone
-            def_press = def_densities[:, j]
-            
-            # Stack to get [batch_size, 5]
-            nx_tensor = torch.full((batch_size,), nx, device=x.device)
-            ny_tensor = torch.full((batch_size,), ny, device=x.device)
-            
-            zone_feats = torch.stack([nx_tensor, ny_tensor, dist, angle, def_press], dim=1)
-            zones_spatial.append(zone_feats)
-            
+        # Vectorized construction of the 5D spatial features
+        batch_tx = self.static_target_xs.unsqueeze(0).expand(batch_size, -1)
+        batch_ty = self.static_target_ys.unsqueeze(0).expand(batch_size, -1)
+        
         # Shape: [batch_size, 30, 5]
-        zones_spatial = torch.stack(zones_spatial, dim=1)
+        zones_spatial = torch.stack([
+            batch_tx, 
+            batch_ty, 
+            batch_dist, 
+            batch_angle, 
+            def_densities
+        ], dim=2)
         
-        # 6. Project all zones to keys -> Shape: [batch_size, 30, 16]
-        keys = self.zone_fc(zones_spatial.view(-1, 5)).view(batch_size, 30, 16)
+        # Project all zones to keys -> Shape: [batch_size, 30, 64]
+        keys = self.zone_fc(zones_spatial.view(-1, 5)).view(batch_size, 30, 64)
         
-        # 7. Compute bilinear attention scores: query^T * key
-        # [batch_size, 1, 16] x [batch_size, 16, 30] -> [batch_size, 1, 30] -> [batch_size, 30]
-        scores = torch.bmm(query.unsqueeze(1), keys.transpose(1, 2)).squeeze(1)
+        # Compute bilinear attention scores: query^T * key
+        spatial_logits = torch.bmm(query.unsqueeze(1), keys.transpose(1, 2)).squeeze(1)
         
-        return scores
+        # --- Pathway 2: Tactical MLP ---
+        x_no_role = torch.cat([x[:, :self.role_idx], x[:, self.role_idx+1:]], dim=1)
+        x_full_emb = torch.cat([x_no_role, role_emb], dim=1)
+        
+        h_mlp = F.relu(self.mlp_fc1(x_full_emb))
+        h_mlp = self.dropout(h_mlp)
+        h_mlp = F.relu(self.mlp_fc2(h_mlp))
+        h_mlp = self.dropout(h_mlp)
+        mlp_logits = self.mlp_fc3(h_mlp)
+        
+        # --- Combine Logits ---
+        return spatial_logits + mlp_logits

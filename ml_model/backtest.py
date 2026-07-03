@@ -7,6 +7,28 @@ from mcmc_simulation import build_30_zone_grid, map_coordinates_to_zone
 from ml_model.models import HeuristicTransitionModel, MLTransitionModel
 from ml_model.simulator import simulate_full_match
 from utils import parse_location, TEAM_TO_MANAGER, calculate_brier_score, calculate_log_loss
+from concurrent.futures import ProcessPoolExecutor
+
+def run_single_simulation(args):
+    (model_type, outcome_path, dest_path, base_matrix,
+     home_team, away_team, df_target_passes, player_profiles, gk_profiles, 
+     team_defensive_profiles, manager_profiles, TEAM_TO_MANAGER_dict, player_to_team, 
+     zones, dynamic_possessions) = args
+     
+    # Import inside worker to prevent circular import issues
+    from ml_model.models import HeuristicTransitionModel, MLTransitionModel
+    
+    if model_type == 'heuristic':
+        model = HeuristicTransitionModel(base_matrix)
+    else:
+        model = MLTransitionModel(outcome_path, dest_path)
+        
+    return simulate_full_match(
+        home_team, away_team, model, df_target_passes, 
+        player_profiles, gk_profiles, team_defensive_profiles, 
+        manager_profiles, TEAM_TO_MANAGER_dict, player_to_team, zones,
+        num_possessions=dynamic_possessions
+    )
 
 def run_ml_backtest(model_type='random_forest', mode='iteration', num_simulations=500):
     print(f"\n==================================================")
@@ -139,14 +161,22 @@ def run_ml_backtest(model_type='random_forest', mode='iteration', num_simulation
         draws = 0
         away_wins = 0
         
-        print(f"Simulating match {num_simulations} times ({dynamic_possessions} possessions/game)...")
-        for _ in range(num_simulations):
-            h_goals, a_goals = simulate_full_match(
-                home_team, away_team, model, df_target_passes, 
-                player_profiles, gk_profiles, team_defensive_profiles, 
-                manager_profiles, TEAM_TO_MANAGER, player_to_team, zones,
-                num_possessions=dynamic_possessions
-            )
+        print(f"Simulating match {num_simulations} times ({dynamic_possessions} possessions/game) in parallel...")
+        
+        outcome_path = f"data/models/{model_type}_{mode}_outcome.pkl" if model_type != 'heuristic' else ""
+        dest_path = f"data/models/{model_type}_{mode}_destination.pkl" if model_type != 'heuristic' else ""
+        
+        sim_args = (
+            model_type, outcome_path, dest_path, base_matrix,
+            home_team, away_team, df_target_passes, player_profiles, gk_profiles, 
+            team_defensive_profiles, manager_profiles, TEAM_TO_MANAGER, player_to_team, 
+            zones, dynamic_possessions
+        )
+        
+        with ProcessPoolExecutor() as executor:
+            sim_results = list(executor.map(run_single_simulation, [sim_args] * num_simulations))
+            
+        for h_goals, a_goals in sim_results:
             if h_goals > a_goals:
                 home_wins += 1
             elif h_goals == a_goals:
