@@ -25,7 +25,7 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
     current_team = np.random.choice([home_team, away_team])
     current_zone = "Z_2_2" # Start in central midfield
     
-    for _ in range(num_possessions):
+    for p_idx in range(num_possessions):
         chain_active = True
         # Initialize sequence history buffer for the possession: [prev_1, prev_2]
         # Each entry is (zone_x, zone_y, success)
@@ -33,6 +33,8 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
         possession_duration = 0.0
         pass_sequence_index = 0
         possession_directions = []
+        
+        time_ratio = p_idx / num_possessions
         
         while chain_active:
             # Get players in this zone
@@ -52,13 +54,19 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
             # Calculate score differential from the perspective of the team in possession
             score_differential = home_goals - away_goals if current_team == home_team else away_goals - home_goals
             
+            # Determine defending team and opponent defensive rate in current zone for under_pressure sampling
+            defending_team = away_team if current_team == home_team else home_team
+            opp_def_rate = team_defensive_profiles.get(defending_team, {}).get(current_zone, 0.0)
+            under_pressure = 1 if np.random.rand() < opp_def_rate else 0
+            
             # Get transition probabilities from the modular model
             zone_probs = transition_model.get_transition_probabilities(
                 current_zone, player_on_ball, player_profiles, 
                 manager_profiles, team_to_manager, player_to_team, 
                 home_team, away_team, zones, history=history,
                 score_differential=score_differential, possession_duration=possession_duration,
-                pass_sequence_index=pass_sequence_index, possession_directions=possession_directions
+                pass_sequence_index=pass_sequence_index, possession_directions=possession_directions,
+                time_ratio=time_ratio, under_pressure=under_pressure
             )
             
             if zone_probs.sum() == 0:
@@ -105,7 +113,8 @@ def simulate_full_match(home_team, away_team, transition_model, df_events, playe
                     team_defensive_profiles, player_to_team, home_team, away_team, history=history,
                     score_differential=score_differential, possession_duration=possession_duration,
                     pass_sequence_index=pass_sequence_index, next_zone=next_zone,
-                    possession_directions=possession_directions
+                    possession_directions=possession_directions, time_ratio=time_ratio,
+                    under_pressure=under_pressure
                 )
                 
                 if np.random.rand() < turnover_prob: 

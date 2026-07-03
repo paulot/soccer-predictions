@@ -150,12 +150,18 @@ def extract_features_and_targets(mode='iteration'):
                 
                 score_diff = home_score - away_score if team == home_team else away_score - home_score
                 
+                period = row.get('period', 1)
+                time_ratio = (period - 1) * 0.5 + min(1.0, pass_time / 2700.0) * 0.5
+                under_pressure = 1 if row.get('under_pressure') == True or row.get('under_pressure') == 1.0 else 0
+                
                 passes_with_context.append({
                     'event_row': row.to_dict(),
                     'loc_parsed': loc,
                     'pass_end_loc_parsed': end_loc,
                     'score_differential': score_diff,
-                    'possession_duration': duration
+                    'possession_duration': duration,
+                    'time_ratio': time_ratio,
+                    'under_pressure': under_pressure
                 })
                 
         if not passes_with_context:
@@ -264,6 +270,10 @@ def extract_features_and_targets(mode='iteration'):
                 pos = row_dict.get('position', 'Center Midfield')
                 player_role = ROLE_MAPPING.get(pos, 2)
                 
+                game_state_momentum = p['score_differential'] * (1.0 + p['time_ratio'])
+                end_def_rate = def_profiles.get((opp_team, f"Z_{end_x}_{end_y}"), 0.0)
+                pressure_differential = end_def_rate - opp_def_rate
+                
                 record = {
                     'start_zone_x': curr_x,
                     'start_zone_y': curr_y,
@@ -282,6 +292,9 @@ def extract_features_and_targets(mode='iteration'):
                     'prev_pass_direction_1': prev_dir_1,
                     'prev_pass_direction_2': prev_dir_2,
                     'prev_pass_direction_3': prev_dir_3,
+                    'under_pressure': p['under_pressure'],
+                    'game_state_momentum': game_state_momentum,
+                    'pressure_differential': pressure_differential,
                     **history,
                     'outcome': outcome,
                     'end_zone_x': end_x,

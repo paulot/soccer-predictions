@@ -142,7 +142,8 @@ class MLTransitionModel(BaseTransitionModel):
     def _compile_features(self, current_zone, player_on_ball, player_profiles, 
                           manager_profiles, team_to_manager, player_to_team, 
                           home_team, away_team, history=None, score_differential=0, possession_duration=0.0,
-                          pass_sequence_index=0, pass_length=0.0, pass_angle=0.0, possession_directions=None):
+                          pass_sequence_index=0, pass_length=0.0, pass_angle=0.0, possession_directions=None,
+                          time_ratio=0.0, under_pressure=0, next_zone=None):
         current_team = player_to_team.get(player_on_ball) if player_on_ball else np.random.choice([home_team, away_team])
         defending_team = away_team if current_team == home_team else home_team
         mgr_name = team_to_manager.get(current_team)
@@ -190,7 +191,19 @@ class MLTransitionModel(BaseTransitionModel):
         prev_dir_2 = possession_directions[-2] if len(possession_directions) >= 2 else 0
         prev_dir_3 = possession_directions[-3] if len(possession_directions) >= 3 else 0
         
+        # Calculate game state momentum
+        game_state_momentum = score_differential * (1.0 + time_ratio)
+        
+        # Calculate pressure differential if next_zone is provided
+        if next_zone:
+            end_def_rate = self.def_profiles.get((defending_team, next_zone), 0.0)
+            pressure_differential = end_def_rate - opp_def_rate
+        else:
+            pressure_differential = 0.0
+        
         feats = {
+            'start_zone_x': int(current_zone.split('_')[1]),
+            'start_zone_y': int(current_zone.split('_')[2]),
             'opp_defensive_rate': opp_def_rate,
             'opp_gk_save_ratio': opp_gk_save,
             'score_differential': score_differential,
@@ -202,6 +215,9 @@ class MLTransitionModel(BaseTransitionModel):
             'prev_pass_direction_1': prev_dir_1,
             'prev_pass_direction_2': prev_dir_2,
             'prev_pass_direction_3': prev_dir_3,
+            'under_pressure': under_pressure,
+            'game_state_momentum': game_state_momentum,
+            'pressure_differential': pressure_differential,
             'prev_1_success': p1[2],
             'prev_2_success': p2[2]
         }
@@ -228,22 +244,24 @@ class MLTransitionModel(BaseTransitionModel):
     def get_transition_probabilities(self, current_zone, player_on_ball, player_profiles, 
                                       manager_profiles, team_to_manager, player_to_team, 
                                       home_team, away_team, zones, history=None, score_differential=0, possession_duration=0.0,
-                                      pass_sequence_index=0, possession_directions=None):
+                                      pass_sequence_index=0, possession_directions=None, time_ratio=0.0, under_pressure=0):
         if history is None:
             history = [(-1, -1, -1), (-1, -1, -1)]
         hist_tuple = tuple(history)
         pd_tuple = tuple(possession_directions) if possession_directions else ()
-        cache_key = (player_on_ball, current_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index, pd_tuple)
+        cache_key = (player_on_ball, current_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index, pd_tuple, time_ratio, under_pressure)
         if cache_key in self.cache_probs:
             return self.cache_probs[cache_key]
             
         feats = self._compile_features(current_zone, player_on_ball, player_profiles, 
                                        manager_profiles, team_to_manager, player_to_team, 
                                        home_team, away_team, history, score_differential, possession_duration,
-                                       pass_sequence_index, 0.0, 0.0, possession_directions)
+                                       pass_sequence_index, 0.0, 0.0, possession_directions,
+                                       time_ratio, under_pressure, None)
         
         df_feats = pd.DataFrame([feats])
         dest_features = [
+            'start_zone_x', 'start_zone_y',
             'zone_emb_0', 'zone_emb_1', 'zone_emb_2', 'zone_emb_3',
             'player_emb_0', 'player_emb_1', 'player_emb_2', 'player_emb_3',
             'player_emb_4', 'player_emb_5', 'player_emb_6', 'player_emb_7',
@@ -252,6 +270,7 @@ class MLTransitionModel(BaseTransitionModel):
             'score_differential', 'possession_duration', 'pass_sequence_index',
             'player_role',
             'prev_pass_direction_1', 'prev_pass_direction_2', 'prev_pass_direction_3',
+            'under_pressure', 'game_state_momentum',
             'prev_1_zone_emb_0', 'prev_1_zone_emb_1', 'prev_1_zone_emb_2', 'prev_1_zone_emb_3', 'prev_1_success',
             'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success'
         ] + [f'target_def_density_{tx}_{ty}' for tx in range(6) for ty in range(5)]
@@ -259,8 +278,10 @@ class MLTransitionModel(BaseTransitionModel):
         
         if isinstance(self.destination_model, torch.nn.Module):
             with torch.no_grad():
-                feats_scaled = self.destination_scaler.transform(df_feats)
-                feats_tensor = torch.FloatTensor(feats_scaled)
+                continuous_cols = [c for c in df_feats.columns if c != 'player_role']
+                df_feats_scaled = df_feats.copy()
+                df_feats_scaled[continuous_cols] = self.destination_scaler.transform(df_feats[continuous_cols])
+                feats_tensor = torch.FloatTensor(df_feats_scaled.values)
                 logits = self.destination_model(feats_tensor)
                 dest_probs = torch.softmax(logits, dim=1).numpy()[0]
         else:
@@ -293,7 +314,8 @@ class MLTransitionModel(BaseTransitionModel):
     def get_turnover_probability(self, current_zone, player_on_ball, player_profiles, 
                                   team_defensive_profiles, player_to_team, home_team, away_team, 
                                   history=None, score_differential=0, possession_duration=0.0,
-                                  pass_sequence_index=0, next_zone=None, possession_directions=None):
+                                  pass_sequence_index=0, next_zone=None, possession_directions=None,
+                                  time_ratio=0.0, under_pressure=0):
         if next_zone is None:
             next_zone = current_zone
             
@@ -301,7 +323,7 @@ class MLTransitionModel(BaseTransitionModel):
             history = [(-1, -1, -1), (-1, -1, -1)]
         hist_tuple = tuple(history)
         pd_tuple = tuple(possession_directions) if possession_directions else ()
-        cache_key = (player_on_ball, current_zone, next_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index, pd_tuple)
+        cache_key = (player_on_ball, current_zone, next_zone, hist_tuple, score_differential, round(possession_duration, 1), pass_sequence_index, pd_tuple, time_ratio, under_pressure)
         if cache_key in self.cache_turnover:
             return self.cache_turnover[cache_key]
             
@@ -321,11 +343,13 @@ class MLTransitionModel(BaseTransitionModel):
         feats = self._compile_features(current_zone, player_on_ball, player_profiles, 
                                        {}, {}, player_to_team, 
                                        home_team, away_team, history, score_differential, possession_duration,
-                                       pass_sequence_index, pass_length, pass_angle, possession_directions)
+                                       pass_sequence_index, pass_length, pass_angle, possession_directions,
+                                       time_ratio, under_pressure, next_zone)
         feats['opp_defensive_rate'] = def_rate
         
         df_feats = pd.DataFrame([feats])
         dest_features = [
+            'start_zone_x', 'start_zone_y',
             'zone_emb_0', 'zone_emb_1', 'zone_emb_2', 'zone_emb_3',
             'player_emb_0', 'player_emb_1', 'player_emb_2', 'player_emb_3',
             'player_emb_4', 'player_emb_5', 'player_emb_6', 'player_emb_7',
@@ -334,17 +358,20 @@ class MLTransitionModel(BaseTransitionModel):
             'score_differential', 'possession_duration', 'pass_sequence_index',
             'player_role',
             'prev_pass_direction_1', 'prev_pass_direction_2', 'prev_pass_direction_3',
+            'under_pressure', 'game_state_momentum',
             'prev_1_zone_emb_0', 'prev_1_zone_emb_1', 'prev_1_zone_emb_2', 'prev_1_zone_emb_3', 'prev_1_success',
             'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success'
         ] + [f'target_def_density_{tx}_{ty}' for tx in range(6) for ty in range(5)]
         
-        outcome_features = dest_features + ['pass_length', 'pass_angle']
+        outcome_features = dest_features + ['pass_length', 'pass_angle', 'pressure_differential']
         df_feats = df_feats[outcome_features]
         
         if isinstance(self.outcome_model, torch.nn.Module):
             with torch.no_grad():
-                feats_scaled = self.outcome_scaler.transform(df_feats)
-                feats_tensor = torch.FloatTensor(feats_scaled)
+                continuous_cols = [c for c in df_feats.columns if c != 'player_role']
+                df_feats_scaled = df_feats.copy()
+                df_feats_scaled[continuous_cols] = self.outcome_scaler.transform(df_feats[continuous_cols])
+                feats_tensor = torch.FloatTensor(df_feats_scaled.values)
                 turnover_prob = self.outcome_model(feats_tensor).item()
         else:
             outcome_probs = self.outcome_model.predict_proba(df_feats)[0]
