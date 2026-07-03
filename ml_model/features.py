@@ -34,6 +34,8 @@ def parse_timestamp_to_seconds(ts_str):
 def extract_features_and_targets(mode='iteration'):
     print(f"Extracting features for ML Transition Model (Mode: {mode.upper()})...")
     
+    import pickle
+    
     # 1. Load profiles for joining
     try:
         df_players = pd.read_csv("data/statsbomb_player_profiles.csv")
@@ -54,8 +56,22 @@ def extract_features_and_targets(mode='iteration'):
         print(f"Error loading profiles: {e}. Please run download_data.py first.")
         return
 
+    # Load spectral embeddings
+    emb_dir = "data/embeddings"
+    if not os.path.exists(os.path.join(emb_dir, "zone_embeddings.pkl")):
+        print("  Embeddings not found. Training spectral embeddings first...")
+        from ml_model.train_embeddings import train_all_embeddings
+        train_all_embeddings(mode)
+        
+    with open(os.path.join(emb_dir, "zone_embeddings.pkl"), 'rb') as f:
+        zone_embeddings = pickle.load(f)
+    with open(os.path.join(emb_dir, "player_embeddings.pkl"), 'rb') as f:
+        player_embeddings = pickle.load(f)
+    with open(os.path.join(emb_dir, "manager_embeddings.pkl"), 'rb') as f:
+        manager_embeddings = pickle.load(f)
+
     # Mapping of teams to managers (for tactical lookup)
-    from backtest import TEAM_TO_MANAGER
+    from ml_model.backtest import TEAM_TO_MANAGER
 
     raw_dir = "data/raw_events"
     if not os.path.exists(raw_dir):
@@ -70,6 +86,17 @@ def extract_features_and_targets(mode='iteration'):
         print(f"  Iteration Mode: Limiting feature extraction to first {len(match_files)} matches.")
     
     dataset = []
+    player_positions = {}
+    
+    ROLE_MAPPING = {
+        'Goalkeeper': 0,
+        'Right Back': 1, 'Left Back': 1, 'Center Back': 1, 'Right Center Back': 1, 'Left Center Back': 1,
+        'Right Wing Back': 1, 'Left Wing Back': 1,
+        'Center Defensive Midfield': 2, 'Right Center Midfield': 2, 'Left Center Midfield': 2,
+        'Right Midfield': 2, 'Left Midfield': 2, 'Center Midfield': 2, 'Center Attacking Midfield': 2,
+        'Right Wing': 3, 'Left Wing': 3, 'Center Forward': 3, 'Secondary Striker': 3,
+        'Right Center Forward': 3, 'Left Center Forward': 3
+    }
     
     for idx, filename in enumerate(match_files):
         match_path = os.path.join(raw_dir, filename)
@@ -94,6 +121,15 @@ def extract_features_and_targets(mode='iteration'):
             first_event = gp.iloc[0]
             ts = first_event.get('timestamp')
             poss_start_times[poss_id] = parse_timestamp_to_seconds(ts)
+            
+        # Accumulate player positions
+        df_pos = df_events.dropna(subset=['player', 'position'])
+        for _, row in df_pos.iterrows():
+            p = row['player']
+            pos = row['position']
+            if p not in player_positions:
+                player_positions[p] = {}
+            player_positions[p][pos] = player_positions[p].get(pos, 0) + 1
             
         # Find all goalkeepers
         player_to_team = df_events.dropna(subset=['player', 'team']).set_index('player')['team'].to_dict()
@@ -148,6 +184,8 @@ def extract_features_and_targets(mode='iteration'):
         for poss_id, group in df_passes_context.groupby(lambda idx: passes_with_context[idx]['event_row']['possession']):
             poss_passes = group.to_dict(orient='records')
             
+            possession_directions = []
+            
             for i, p in enumerate(poss_passes):
                 row_dict = p['event_row']
                 loc = p['loc_parsed']
@@ -189,6 +227,17 @@ def extract_features_and_targets(mode='iteration'):
                 pass_length = np.sqrt(dx**2 + dy**2)
                 pass_angle = np.arctan2(dy, dx)
                 
+                # Direction of this pass
+                pass_dx = end_x - curr_x
+                direction = 1 if pass_dx > 0 else (-1 if pass_dx < 0 else 0)
+                
+                # Extract history of last 3 passes in this possession
+                prev_dir_1 = possession_directions[-1] if len(possession_directions) >= 1 else 0
+                prev_dir_2 = possession_directions[-2] if len(possession_directions) >= 2 else 0
+                prev_dir_3 = possession_directions[-3] if len(possession_directions) >= 3 else 0
+                
+                possession_directions.append(direction)
+                
                 # History features (N=2)
                 history = {}
                 for n in range(1, 3):
@@ -210,7 +259,30 @@ def extract_features_and_targets(mode='iteration'):
                         history[f'prev_{n}_zone_y'] = -1
                         history[f'prev_{n}_success'] = -1
                 
-                dataset.append({
+                # Look up spectral embeddings
+                start_zone = f"Z_{curr_x}_{curr_y}"
+                z_emb = zone_embeddings.get(start_zone, np.zeros(4))
+                p_emb = player_embeddings.get(player, np.zeros(8))
+                m_emb = manager_embeddings.get(mgr_name, np.zeros(4))
+                
+                # History zone embeddings
+                h_embs = {}
+                for n in range(1, 3):
+                    px = history[f'prev_{n}_zone_x']
+                    py = history[f'prev_{n}_zone_y']
+                    if px != -1 and py != -1:
+                        prev_z_name = f"Z_{px}_{py}"
+                        pz_emb = zone_embeddings.get(prev_z_name, np.zeros(4))
+                    else:
+                        pz_emb = np.zeros(4)
+                    for d in range(4):
+                        h_embs[f'prev_{n}_zone_emb_{d}'] = pz_emb[d]
+                        
+                # Get player role
+                pos = row_dict.get('position', 'Center Midfield')
+                player_role = ROLE_MAPPING.get(pos, 2)
+                
+                record = {
                     'start_zone_x': curr_x,
                     'start_zone_y': curr_y,
                     'passer_accuracy': passer_acc,
@@ -224,20 +296,53 @@ def extract_features_and_targets(mode='iteration'):
                     'pass_sequence_index': i,
                     'pass_length': pass_length,
                     'pass_angle': pass_angle,
+                    'player_role': player_role,
+                    'prev_pass_direction_1': prev_dir_1,
+                    'prev_pass_direction_2': prev_dir_2,
+                    'prev_pass_direction_3': prev_dir_3,
                     **history,
                     'outcome': outcome,
                     'end_zone_x': end_x,
                     'end_zone_y': end_y
-                })
+                }
+                
+                # Add opponent defensive density for all 30 target zones
+                for tx in range(6):
+                    for ty in range(5):
+                        t_zone = f"Z_{tx}_{ty}"
+                        record[f'target_def_density_{tx}_{ty}'] = def_profiles.get((opp_team, t_zone), 0.0)
+                
+                # Add embeddings
+                for d in range(4):
+                    record[f'zone_emb_{d}'] = z_emb[d]
+                for d in range(8):
+                    record[f'player_emb_{d}'] = p_emb[d]
+                for d in range(4):
+                    record[f'manager_emb_{d}'] = m_emb[d]
+                record.update(h_embs)
+                
+                dataset.append(record)
                 
         if (idx + 1) % 100 == 0 or (idx + 1) == len(match_files):
             print(f"  Processed {idx + 1} matches...")
+            
+    # Resolve player roles and save
+    import json
+    player_roles = {}
+    for p, positions in player_positions.items():
+        most_common_pos = max(positions, key=positions.get)
+        player_roles[p] = ROLE_MAPPING.get(most_common_pos, 2)
+    os.makedirs("data/models", exist_ok=True)
+    with open("data/models/player_roles.json", "w") as f:
+        json.dump(player_roles, f)
+    print("Saved player roles to data/models/player_roles.json")
             
     df_dataset = pd.DataFrame(dataset)
     os.makedirs("data", exist_ok=True)
     csv_filename = f"data/ml_training_data_{mode}.csv"
     df_dataset.to_csv(csv_filename, index=False)
     print(f"Saved training dataset with {len(df_dataset)} rows to {csv_filename}")
+
 
 if __name__ == "__main__":
     import argparse

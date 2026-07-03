@@ -5,14 +5,10 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, log_loss
 
-# Try importing xgboost, fallback to RandomForest if not installed or fails to load
-try:
-    from xgboost import XGBClassifier
-    HAS_XGB = True
-except Exception:
-    HAS_XGB = False
+# xgboost will be imported lazily to avoid OpenMP conflicts with PyTorch.
 
 def train_models(model_type='random_forest', mode='iteration'):
     print(f"Training models using architecture: {model_type.upper()} (Mode: {mode.upper()})...")
@@ -26,14 +22,19 @@ def train_models(model_type='random_forest', mode='iteration'):
         
     df = pd.read_csv(csv_path)
     
-    # Define features
+    # Define features leveraging embeddings and new contextual features
     dest_features = [
-        'start_zone_x', 'start_zone_y', 'passer_accuracy', 'passer_progressive_ratio',
-        'opp_defensive_rate', 'opp_gk_save_ratio', 'manager_directness', 'manager_width',
+        'zone_emb_0', 'zone_emb_1', 'zone_emb_2', 'zone_emb_3',
+        'player_emb_0', 'player_emb_1', 'player_emb_2', 'player_emb_3',
+        'player_emb_4', 'player_emb_5', 'player_emb_6', 'player_emb_7',
+        'opp_defensive_rate', 'opp_gk_save_ratio',
+        'manager_emb_0', 'manager_emb_1', 'manager_emb_2', 'manager_emb_3',
         'score_differential', 'possession_duration', 'pass_sequence_index',
-        'prev_1_zone_x', 'prev_1_zone_y', 'prev_1_success',
-        'prev_2_zone_x', 'prev_2_zone_y', 'prev_2_success'
-    ]
+        'player_role',
+        'prev_pass_direction_1', 'prev_pass_direction_2', 'prev_pass_direction_3',
+        'prev_1_zone_emb_0', 'prev_1_zone_emb_1', 'prev_1_zone_emb_2', 'prev_1_zone_emb_3', 'prev_1_success',
+        'prev_2_zone_emb_0', 'prev_2_zone_emb_1', 'prev_2_zone_emb_2', 'prev_2_zone_emb_3', 'prev_2_success'
+    ] + [f'target_def_density_{tx}_{ty}' for tx in range(6) for ty in range(5)]
     
     outcome_features = dest_features + ['pass_length', 'pass_angle']
     
@@ -50,22 +51,63 @@ def train_models(model_type='random_forest', mode='iteration'):
     
     if model_type == 'logistic_regression':
         outcome_model = LogisticRegression(max_iter=1000)
-    elif model_type == 'xgboost' and HAS_XGB:
-        outcome_model = XGBClassifier(n_estimators=100, max_depth=5, random_state=42)
+    elif model_type == 'xgboost':
+        try:
+            from xgboost import XGBClassifier
+            outcome_model = XGBClassifier(n_estimators=100, max_depth=5, random_state=42)
+        except ImportError:
+            print("  XGBoost not installed. Falling back to Random Forest.")
+            outcome_model = RandomForestClassifier(n_estimators=100, max_depth=8, random_state=42)
+    elif model_type == 'neural_network':
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from sklearn.preprocessing import StandardScaler
+        from ml_model.pytorch_models import OutcomeNN
+        
+        # Fit and apply scaler
+        outcome_scaler = StandardScaler()
+        X_train_scaled = outcome_scaler.fit_transform(X_train)
+        X_val_scaled = outcome_scaler.transform(X_val)
+        
+        X_train_t = torch.FloatTensor(X_train_scaled)
+        y_train_t = torch.FloatTensor(y_train.values).unsqueeze(1)
+        X_val_t = torch.FloatTensor(X_val_scaled)
+        
+        outcome_model = OutcomeNN(X_train.shape[1])
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(outcome_model.parameters(), lr=0.005)
+        
+        outcome_model.train()
+        for epoch in range(100):
+            if epoch % 10 == 0:
+                print(f"  Epoch {epoch}", flush=True)
+            optimizer.zero_grad()
+            outputs = outcome_model(X_train_t)
+            loss = criterion(outputs, y_train_t)
+            loss.backward()
+            optimizer.step()
+            
+        outcome_model.eval()
     else: # Default: random_forest
-        if model_type == 'xgboost':
-            print("  XGBoost not installed or fails to load. Falling back to Random Forest.")
         outcome_model = RandomForestClassifier(n_estimators=100, max_depth=8, random_state=42)
         
-    outcome_model.fit(X_train, y_train)
-    val_preds = outcome_model.predict(X_val)
-    val_probs = outcome_model.predict_proba(X_val)
-    print(f"  Outcome Model Accuracy: {accuracy_score(y_val, val_preds):.2%}")
-    print(f"  Outcome Model Log Loss: {log_loss(y_val, val_probs):.4f}")
-    
+    if model_type == 'neural_network':
+        with torch.no_grad():
+            val_probs = outcome_model(X_val_t).numpy()
+            val_probs_2d = np.hstack([1 - val_probs, val_probs])
+            val_preds = (val_probs > 0.5).astype(int).flatten()
+        print(f"  Outcome Model Accuracy: {accuracy_score(y_val, val_preds):.2%}")
+        print(f"  Outcome Model Log Loss: {log_loss(y_val, val_probs_2d):.4f}")
+    else:
+        outcome_model.fit(X_train, y_train)
+        val_preds = outcome_model.predict(X_val)
+        val_probs = outcome_model.predict_proba(X_val)
+        print(f"  Outcome Model Accuracy: {accuracy_score(y_val, val_preds):.2%}")
+        print(f"  Outcome Model Log Loss: {log_loss(y_val, val_probs):.4f}")
+        
     # --- MODEL 2: DESTINATION MODEL (Where does a successful pass go?) ---
     print("Training Destination Model...")
-    # Filter for successful passes only
     success_mask = (y_outcome == 0)
     X_success = X_dest[success_mask]
     y_dest_success = y_dest[success_mask]
@@ -74,23 +116,77 @@ def train_models(model_type='random_forest', mode='iteration'):
     
     if model_type == 'logistic_regression':
         dest_model = LogisticRegression(max_iter=1000, multi_class='multinomial')
-    elif model_type == 'xgboost' and HAS_XGB:
-        dest_model = XGBClassifier(n_estimators=100, max_depth=5, random_state=42)
+    elif model_type == 'xgboost':
+        try:
+            from xgboost import XGBClassifier
+            dest_model = XGBClassifier(n_estimators=100, max_depth=5, random_state=42)
+        except ImportError:
+            print("  XGBoost not installed. Falling back to Random Forest.")
+            dest_model = RandomForestClassifier(n_estimators=100, max_depth=8, random_state=42)
+    elif model_type == 'neural_network':
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from sklearn.preprocessing import StandardScaler
+        from ml_model.pytorch_models import DestinationNN
+        
+        # Fit and apply scaler
+        dest_scaler = StandardScaler()
+        X_train_d_scaled = dest_scaler.fit_transform(X_train_d)
+        X_val_d_scaled = dest_scaler.transform(X_val_d)
+        
+        X_train_t = torch.FloatTensor(X_train_d_scaled)
+        y_train_t = torch.LongTensor(y_train_d.values)
+        X_val_t = torch.FloatTensor(X_val_d_scaled)
+        
+        dest_model = DestinationNN(X_train_d.shape[1], output_dim=30)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(dest_model.parameters(), lr=0.005)
+        
+        dest_model.train()
+        for epoch in range(100):
+            optimizer.zero_grad()
+            outputs = dest_model(X_train_t)
+            loss = criterion(outputs, y_train_t)
+            loss.backward()
+            optimizer.step()
+            
+        dest_model.eval()
     else: # Default: random_forest
         dest_model = RandomForestClassifier(n_estimators=100, max_depth=8, random_state=42)
         
-    dest_model.fit(X_train_d, y_train_d)
-    val_preds_d = dest_model.predict(X_val_d)
-    val_probs_d = dest_model.predict_proba(X_val_d)
-    print(f"  Destination Model Accuracy: {accuracy_score(y_val_d, val_preds_d):.2%}")
-    print(f"  Destination Model Log Loss: {log_loss(y_val_d, val_probs_d):.4f}")
-    
-    # Save models
+    if model_type == 'neural_network':
+        with torch.no_grad():
+            logits = dest_model(X_val_t)
+            val_probs_d = torch.softmax(logits, dim=1).numpy()
+            val_preds_d = val_probs_d.argmax(axis=1)
+        print(f"  Destination Model Accuracy: {accuracy_score(y_val_d, val_preds_d):.2%}")
+        print(f"  Destination Model Log Loss: {log_loss(y_val_d, val_probs_d, labels=list(range(30))):.4f}")
+    else:
+        dest_model.fit(X_train_d, y_train_d)
+        val_preds_d = dest_model.predict(X_val_d)
+        val_probs_d = dest_model.predict_proba(X_val_d)
+        print(f"  Destination Model Accuracy: {accuracy_score(y_val_d, val_preds_d):.2%}")
+        print(f"  Destination Model Log Loss: {log_loss(y_val_d, val_probs_d):.4f}")
+        
+    # Save models and scalers
     model_dir = "data/models"
     os.makedirs(model_dir, exist_ok=True)
     
     outcome_path = os.path.join(model_dir, f"{model_type}_{mode}_outcome.pkl")
     dest_path = os.path.join(model_dir, f"{model_type}_{mode}_destination.pkl")
+    
+    with open(outcome_path, 'wb') as f:
+        pickle.dump(outcome_model, f)
+    with open(dest_path, 'wb') as f:
+        pickle.dump(dest_model, f)
+        
+    if model_type == 'neural_network':
+        with open(os.path.join(model_dir, "neural_network_outcome_scaler.pkl"), 'wb') as f:
+            pickle.dump(outcome_scaler, f)
+        with open(os.path.join(model_dir, "neural_network_destination_scaler.pkl"), 'wb') as f:
+            pickle.dump(dest_scaler, f)
+        print("Saved PyTorch scalers to data/models/")
     
     with open(outcome_path, 'wb') as f:
         pickle.dump(outcome_model, f)
