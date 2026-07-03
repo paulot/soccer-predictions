@@ -6,35 +6,7 @@ from statsbombpy import sb
 from mcmc_simulation import build_30_zone_grid, map_coordinates_to_zone
 from ml_model.models import HeuristicTransitionModel, MLTransitionModel
 from ml_model.simulator import simulate_full_match
-from download_data import parse_location
-
-TEAM_TO_MANAGER = {
-    "Canada": "John Herdman",
-    "Morocco": "Walid Regragui",
-    "England": "Gareth Southgate",
-    "Iran": "Carlos Queiroz",
-    "Croatia": "Zlatko Dalić",
-    "Belgium": "Roberto Martínez",
-    "Netherlands": "Louis van Gaal",
-    "Ecuador": "Gustavo Alfaro",
-    "Japan": "Hajime Moriyasu",
-    "Spain": "Luis Enrique"
-}
-
-def calculate_brier_score(prob_win, prob_draw, prob_loss, actual_outcome):
-    y = np.array([1.0 if actual_outcome == 'W' else 0.0,
-                  1.0 if actual_outcome == 'D' else 0.0,
-                  1.0 if actual_outcome == 'L' else 0.0])
-    p = np.array([prob_win, prob_draw, prob_loss])
-    return np.sum((p - y) ** 2)
-
-def calculate_log_loss(prob_win, prob_draw, prob_loss, actual_outcome):
-    p = {
-        'W': max(min(prob_win, 0.999), 0.001),
-        'D': max(min(prob_draw, 0.999), 0.001),
-        'L': max(min(prob_loss, 0.999), 0.001)
-    }
-    return -np.log(p[actual_outcome])
+from utils import parse_location, TEAM_TO_MANAGER, calculate_brier_score, calculate_log_loss
 
 def run_ml_backtest(model_type='random_forest', mode='iteration', num_simulations=500):
     print(f"\n==================================================")

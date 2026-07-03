@@ -1,24 +1,7 @@
 import os
-import ast
 import pandas as pd
 import numpy as np
-
-def parse_location(loc_val):
-    if pd.isnull(loc_val):
-        return None
-    if isinstance(loc_val, list) or isinstance(loc_val, np.ndarray):
-        return loc_val
-    try:
-        return ast.literal_eval(loc_val)
-    except:
-        return None
-
-def map_coordinates_to_zone(x, y):
-    if pd.isnull(x) or pd.isnull(y):
-        return None
-    zone_x = min(int(x / 20), 5)
-    zone_y = min(int(y / 16), 4)
-    return f"Z_{zone_x}_{zone_y}"
+from utils import parse_location, map_coordinates_to_zone, TEAM_TO_MANAGER
 
 def parse_timestamp_to_seconds(ts_str):
     if pd.isna(ts_str): return 0.0
@@ -70,8 +53,7 @@ def extract_features_and_targets(mode='iteration'):
     with open(os.path.join(emb_dir, "manager_embeddings.pkl"), 'rb') as f:
         manager_embeddings = pickle.load(f)
 
-    # Mapping of teams to managers (for tactical lookup)
-    from ml_model.backtest import TEAM_TO_MANAGER
+    # TEAM_TO_MANAGER is imported from utils
 
     raw_dir = "data/raw_events"
     if not os.path.exists(raw_dir):

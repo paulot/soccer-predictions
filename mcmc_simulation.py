@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from utils import map_coordinates_to_zone
 try:
     from statsbombpy import sb
 except ImportError:
@@ -13,17 +14,6 @@ def build_30_zone_grid():
         for y in range(5):
             zones.append(f"Z_{x}_{y}")
     return zones
-
-def map_coordinates_to_zone(x, y):
-    """
-    Maps StatsBomb coordinates to a 30-zone grid (6x5).
-    StatsBomb pitch dimensions: X: 0-120, Y: 0-80
-    """
-    # X divides into 6 zones of 20 length
-    zone_x = min(int(x / 20), 5)
-    # Y divides into 5 zones of 16 width
-    zone_y = min(int(y / 16), 4)
-    return f"Z_{zone_x}_{zone_y}"
 
 def fetch_real_statsbomb_data():
     """

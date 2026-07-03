@@ -1,25 +1,9 @@
 import os
-import ast
 import pickle
 import pandas as pd
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
-from ml_model.backtest import TEAM_TO_MANAGER
-
-def parse_location(loc_val):
-    if pd.isnull(loc_val):
-        return None
-    if isinstance(loc_val, list) or isinstance(loc_val, np.ndarray):
-        return loc_val
-    try:
-        return ast.literal_eval(loc_val)
-    except:
-        return None
-
-def map_coordinates_to_zone(x, y):
-    zone_x = min(int(x / 20), 5)
-    zone_y = min(int(y / 16), 4)
-    return f"Z_{zone_x}_{zone_y}"
+from utils import parse_location, map_coordinates_to_zone, TEAM_TO_MANAGER
 
 def train_all_embeddings(mode='iteration'):
     print(f"Training Spectral Embeddings (Mode: {mode.upper()})...")

@@ -1,48 +1,25 @@
 import os
-import ast
 import pandas as pd
 import numpy as np
 from statsbombpy import sb
+from utils import parse_location, map_coordinates_to_zone
 
-# Configuration
-MAX_MATCHES_PER_COMP = 30 
 
-# Reference date: June 30, 2026 (end of the 2025/2026 season)
-REF_DATE = pd.to_datetime("2026-06-30")
-DECAY_LAMBDA = 0.0019
 
-def parse_location(loc_val):
-    """Safely parses location strings (e.g. '[12.0, 40.0]' from cached CSV) into lists of floats."""
-    if pd.isnull(loc_val):
-        return None
-    if isinstance(loc_val, list) or isinstance(loc_val, np.ndarray):
-        return loc_val
-    try:
-        return ast.literal_eval(loc_val)
-    except:
-        return None
-
-def map_coordinates_to_zone(x, y):
-    """Maps StatsBomb coordinates (120x80) to a 30-zone grid (6x5)."""
-    if pd.isnull(x) or pd.isnull(y):
-        return None
-    zone_x = min(int(x / 20), 5)
-    zone_y = min(int(y / 16), 4)
-    return f"Z_{zone_x}_{zone_y}"
-
-def calculate_time_weight(match_date_str):
+def calculate_time_weight(match_date_str, ref_date, decay_lambda):
     """Calculates the exponential decay weight based on how recent the match was."""
     try:
         match_dt = pd.to_datetime(match_date_str)
-        days_ago = (REF_DATE - match_dt).days
-        # Ensure we don't have negative days if a match is played in the future relative to REF_DATE
+        days_ago = (ref_date - match_dt).days
+        # Ensure we don't have negative days if a match is played in the future relative to ref_date
         days_ago = max(0, days_ago)
-        return np.exp(-DECAY_LAMBDA * days_ago)
+        return np.exp(-decay_lambda * days_ago)
     except:
         return 1.0 # Default weight if date parsing fails
 
-def build_self_contained_pipeline():
+def build_self_contained_pipeline(max_matches_per_comp=30, ref_date="2026-06-30", decay_lambda=0.0019):
     print("Starting Recency-Weighted StatsBomb Data Pipeline...")
+    ref_date_dt = pd.to_datetime(ref_date)
     competitions = sb.competitions()
     
     target_comp_names = [
@@ -83,8 +60,8 @@ def build_self_contained_pipeline():
         try:
             matches = sb.matches(competition_id=comp_id, season_id=season_id)
             match_slice = matches.copy()
-            if MAX_MATCHES_PER_COMP is not None:
-                match_slice = match_slice.head(MAX_MATCHES_PER_COMP)
+            if max_matches_per_comp is not None:
+                match_slice = match_slice.head(max_matches_per_comp)
                 
             for _, match_row in match_slice.iterrows():
                 match_id = match_row['match_id']
@@ -95,7 +72,7 @@ def build_self_contained_pipeline():
                 away_manager = match_row.get('away_managers')
                 
                 # Calculate time-decay weight
-                weight = calculate_time_weight(match_date)
+                weight = calculate_time_weight(match_date, ref_date_dt, decay_lambda)
                 
                 # Local Caching Logic: Load from disk if available, otherwise download and save.
                 cache_dir = "data/raw_events"
@@ -377,4 +354,15 @@ def build_self_contained_pipeline():
     print("Saved dynamic manager profiles.")
 
 if __name__ == "__main__":
-    build_self_contained_pipeline()
+    import argparse
+    parser = argparse.ArgumentParser(description="Download StatsBomb data and compile profiles.")
+    parser.add_argument('--max-matches', type=int, default=30, help="Max matches per competition-season (None for all)")
+    parser.add_argument('--ref-date', type=str, default="2026-06-30", help="Reference date for time decay")
+    parser.add_argument('--decay-lambda', type=float, default=0.0019, help="Lambda parameter for exponential decay")
+    args = parser.parse_args()
+    
+    build_self_contained_pipeline(
+        max_matches_per_comp=args.max_matches,
+        ref_date=args.ref_date,
+        decay_lambda=args.decay_lambda
+    )

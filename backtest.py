@@ -1,47 +1,12 @@
 import pandas as pd
 import numpy as np
-import ast
 from statsbombpy import sb
 from mcmc_simulation import build_30_zone_grid, map_coordinates_to_zone, calculate_player_profiles, get_zone_players, apply_player_modifier
-
-def parse_location(loc_val):
-    """Safely parses location strings (e.g. '[12.0, 40.0]' from cached CSV) into lists of floats."""
-    if pd.isnull(loc_val):
-        return None
-    if isinstance(loc_val, list) or isinstance(loc_val, np.ndarray):
-        return loc_val
-    try:
-        return ast.literal_eval(loc_val)
-    except:
-        return None
+from utils import parse_location, calculate_brier_score, calculate_log_loss, TEAM_TO_MANAGER
 
 # -------------------------------------------------------------------------
-# 1. Scoring Methodologies
+# 1. Scoring Methodologies (Imported from utils)
 # -------------------------------------------------------------------------
-
-def calculate_brier_score(prob_win, prob_draw, prob_loss, actual_outcome):
-    """
-    Calculates the Brier Score (Mean Squared Error for probabilities).
-    Lower is better (0 is perfect, 2 is worst for 3-class).
-    actual_outcome: 'W' (Home Win), 'D' (Draw), 'L' (Home Loss)
-    """
-    y = np.array([1.0 if actual_outcome == 'W' else 0.0,
-                  1.0 if actual_outcome == 'D' else 0.0,
-                  1.0 if actual_outcome == 'L' else 0.0])
-    p = np.array([prob_win, prob_draw, prob_loss])
-    return np.sum((p - y) ** 2)
-
-def calculate_log_loss(prob_win, prob_draw, prob_loss, actual_outcome):
-    """
-    Calculates the Log Loss (Cross-Entropy).
-    Lower is better. Heavily penalizes confident incorrect predictions.
-    """
-    p = {
-        'W': max(min(prob_win, 0.999), 0.001),
-        'D': max(min(prob_draw, 0.999), 0.001),
-        'L': max(min(prob_loss, 0.999), 0.001)
-    }
-    return -np.log(p[actual_outcome])
 
 # -------------------------------------------------------------------------
 # 2. Full Match MCMC Simulator
@@ -187,18 +152,7 @@ def simulate_full_match(home_team, away_team, base_matrix, df_events, player_pro
 # -------------------------------------------------------------------------
 
 # Mapping of teams to their World Cup 2022 Managers
-TEAM_TO_MANAGER = {
-    "Canada": "John Herdman",
-    "Morocco": "Walid Regragui",
-    "England": "Gareth Southgate",
-    "Iran": "Carlos Queiroz",
-    "Croatia": "Zlatko Dalić",
-    "Belgium": "Roberto Martínez",
-    "Netherlands": "Louis van Gaal",
-    "Ecuador": "Gustavo Alfaro",
-    "Japan": "Hajime Moriyasu",
-    "Spain": "Luis Enrique"
-}
+# TEAM_TO_MANAGER is imported from utils
 
 def run_loocv_backtest(match_ids, num_simulations=500):
     """
