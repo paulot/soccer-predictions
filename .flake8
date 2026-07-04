@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 120
+extend-ignore = E203, W503
+per-file-ignores = run_pipeline.py:E402
+exclude = .git,__pycache__,data,embeddings,.venv,local_packages

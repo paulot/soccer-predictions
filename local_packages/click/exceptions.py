@@ -73,10 +73,7 @@ class UsageError(ClickException):
             file = get_text_stderr()
         color = None
         hint = ""
-        if (
-            self.ctx is not None
-            and self.ctx.command.get_help_option(self.ctx) is not None
-        ):
+        if self.ctx is not None and self.ctx.command.get_help_option(self.ctx) is not None:
             hint = _("Try '{command} {option}' for help.").format(
                 command=self.ctx.command_path, option=self.ctx.help_option_names[0]
             )
@@ -246,9 +243,7 @@ class BadOptionUsage(UsageError):
     :param option_name: the name of the option being used incorrectly.
     """
 
-    def __init__(
-        self, option_name: str, message: str, ctx: t.Optional["Context"] = None
-    ) -> None:
+    def __init__(self, option_name: str, message: str, ctx: t.Optional["Context"] = None) -> None:
         super().__init__(message, ctx)
         self.option_name = option_name
 
@@ -274,9 +269,7 @@ class FileError(ClickException):
         self.filename = filename
 
     def format_message(self) -> str:
-        return _("Could not open file {filename!r}: {message}").format(
-            filename=self.ui_filename, message=self.message
-        )
+        return _("Could not open file {filename!r}: {message}").format(filename=self.ui_filename, message=self.message)
 
 
 class Abort(RuntimeError):

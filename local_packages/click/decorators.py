@@ -122,10 +122,7 @@ def pass_meta_key(
     if doc_description is None:
         doc_description = f"the {key!r} key from :attr:`click.Context.meta`"
 
-    decorator.__doc__ = (
-        f"Decorator that passes {doc_description} as the first argument"
-        " to the decorated function."
-    )
+    decorator.__doc__ = f"Decorator that passes {doc_description} as the first argument" " to the decorated function."
     return decorator
 
 
@@ -159,9 +156,7 @@ def command(
 
 # variant: with optional string name, no cls argument provided.
 @t.overload
-def command(
-    name: t.Optional[str] = ..., cls: None = None, **attrs: t.Any
-) -> t.Callable[[_AnyCallable], Command]: ...
+def command(name: t.Optional[str] = ..., cls: None = None, **attrs: t.Any) -> t.Callable[[_AnyCallable], Command]: ...
 
 
 def command(
@@ -276,9 +271,7 @@ def group(
 
 # variant: with optional string name, no cls argument provided.
 @t.overload
-def group(
-    name: t.Optional[str] = ..., cls: None = None, **attrs: t.Any
-) -> t.Callable[[_AnyCallable], Group]: ...
+def group(name: t.Optional[str] = ..., cls: None = None, **attrs: t.Any) -> t.Callable[[_AnyCallable], Group]: ...
 
 
 def group(
@@ -312,9 +305,7 @@ def _param_memo(f: t.Callable[..., t.Any], param: Parameter) -> None:
         f.__click_params__.append(param)  # type: ignore
 
 
-def argument(
-    *param_decls: str, cls: t.Optional[t.Type[Argument]] = None, **attrs: t.Any
-) -> t.Callable[[FC], FC]:
+def argument(*param_decls: str, cls: t.Optional[t.Type[Argument]] = None, **attrs: t.Any) -> t.Callable[[FC], FC]:
     """Attaches an argument to the command.  All positional arguments are
     passed as parameter declarations to :class:`Argument`; all keyword
     arguments are forwarded unchanged (except ``cls``).
@@ -340,9 +331,7 @@ def argument(
     return decorator
 
 
-def option(
-    *param_decls: str, cls: t.Optional[t.Type[Option]] = None, **attrs: t.Any
-) -> t.Callable[[FC], FC]:
+def option(*param_decls: str, cls: t.Optional[t.Type[Option]] = None, **attrs: t.Any) -> t.Callable[[FC], FC]:
     """Attaches an option to the command.  All positional arguments are
     passed as parameter declarations to :class:`Option`; all keyword
     arguments are forwarded unchanged (except ``cls``).
@@ -496,14 +485,11 @@ def version_option(
                 version = metadata.version(package_name)  # type: ignore
             except metadata.PackageNotFoundError:  # type: ignore
                 raise RuntimeError(
-                    f"{package_name!r} is not installed. Try passing"
-                    " 'package_name' instead."
+                    f"{package_name!r} is not installed. Try passing" " 'package_name' instead."
                 ) from None
 
         if version is None:
-            raise RuntimeError(
-                f"Could not determine the version for {package_name!r} automatically."
-            )
+            raise RuntimeError(f"Could not determine the version for {package_name!r} automatically.")
 
         echo(
             message % {"prog": prog_name, "package": package_name, "version": version},

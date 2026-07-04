@@ -93,9 +93,7 @@ class ParamType:
         .. versionadded:: 2.0
         """
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         """Convert the value to the correct type. This is not called if
         the value is ``None`` (the missing value).
 
@@ -136,9 +134,7 @@ class ParamType:
         """Helper method to fail with an invalid value message."""
         raise BadParameter(message, ctx=ctx, param=param)
 
-    def shell_complete(
-        self, ctx: "Context", param: "Parameter", incomplete: str
-    ) -> t.List["CompletionItem"]:
+    def shell_complete(self, ctx: "Context", param: "Parameter", incomplete: str) -> t.List["CompletionItem"]:
         """Return a list of
         :class:`~click.shell_completion.CompletionItem` objects for the
         incomplete value. Most types do not provide completions, but
@@ -172,9 +168,7 @@ class FuncParamType(ParamType):
         info_dict["func"] = self.func
         return info_dict
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         try:
             return self.func(value)
         except ValueError:
@@ -189,9 +183,7 @@ class FuncParamType(ParamType):
 class UnprocessedParamType(ParamType):
     name = "text"
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         return value
 
     def __repr__(self) -> str:
@@ -201,9 +193,7 @@ class UnprocessedParamType(ParamType):
 class StringParamType(ParamType):
     name = "text"
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         if isinstance(value, bytes):
             enc = _get_argv_encoding()
             try:
@@ -266,9 +256,7 @@ class Choice(ParamType):
     def get_missing_message(self, param: "Parameter") -> str:
         return _("Choose from:\n\t{choices}").format(choices=",\n\t".join(self.choices))
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         # Match through normalization and case sensitivity
         # first do token_normalize_func, then lowercase
         # preserve original `value` to produce an accurate message in
@@ -279,16 +267,12 @@ class Choice(ParamType):
         if ctx is not None and ctx.token_normalize_func is not None:
             normed_value = ctx.token_normalize_func(value)
             normed_choices = {
-                ctx.token_normalize_func(normed_choice): original
-                for normed_choice, original in normed_choices.items()
+                ctx.token_normalize_func(normed_choice): original for normed_choice, original in normed_choices.items()
             }
 
         if not self.case_sensitive:
             normed_value = normed_value.casefold()
-            normed_choices = {
-                normed_choice.casefold(): original
-                for normed_choice, original in normed_choices.items()
-            }
+            normed_choices = {normed_choice.casefold(): original for normed_choice, original in normed_choices.items()}
 
         if normed_value in normed_choices:
             return normed_choices[normed_value]
@@ -307,9 +291,7 @@ class Choice(ParamType):
     def __repr__(self) -> str:
         return f"Choice({list(self.choices)})"
 
-    def shell_complete(
-        self, ctx: "Context", param: "Parameter", incomplete: str
-    ) -> t.List["CompletionItem"]:
+    def shell_complete(self, ctx: "Context", param: "Parameter", incomplete: str) -> t.List["CompletionItem"]:
         """Complete choices that start with the incomplete value.
 
         :param ctx: Invocation context for this command.
@@ -375,9 +357,7 @@ class DateTime(ParamType):
         except ValueError:
             return None
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         if isinstance(value, datetime):
             return value
 
@@ -405,16 +385,12 @@ class DateTime(ParamType):
 class _NumberParamTypeBase(ParamType):
     _number_class: t.ClassVar[t.Type[t.Any]]
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         try:
             return self._number_class(value)
         except ValueError:
             self.fail(
-                _("{value!r} is not a valid {number_type}.").format(
-                    value=value, number_type=self.name
-                ),
+                _("{value!r} is not a valid {number_type}.").format(value=value, number_type=self.name),
                 param,
                 ctx,
             )
@@ -446,18 +422,12 @@ class _NumberRangeBase(_NumberParamTypeBase):
         )
         return info_dict
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         import operator
 
         rv = super().convert(value, param, ctx)
-        lt_min: bool = self.min is not None and (
-            operator.le if self.min_open else operator.lt
-        )(rv, self.min)
-        gt_max: bool = self.max is not None and (
-            operator.ge if self.max_open else operator.gt
-        )(rv, self.max)
+        lt_min: bool = self.min is not None and (operator.le if self.min_open else operator.lt)(rv, self.min)
+        gt_max: bool = self.max is not None and (operator.ge if self.max_open else operator.gt)(rv, self.max)
 
         if self.clamp:
             if lt_min:
@@ -468,9 +438,7 @@ class _NumberRangeBase(_NumberParamTypeBase):
 
         if lt_min or gt_max:
             self.fail(
-                _("{value} is not in the range {range}.").format(
-                    value=rv, range=self._describe_range()
-                ),
+                _("{value} is not in the range {range}.").format(value=rv, range=self._describe_range()),
                 param,
                 ctx,
             )
@@ -531,9 +499,7 @@ class IntRange(_NumberRangeBase, IntParamType):
 
     name = "integer range"
 
-    def _clamp(  # type: ignore
-        self, bound: int, dir: "te.Literal[1, -1]", open: bool
-    ) -> int:
+    def _clamp(self, bound: int, dir: "te.Literal[1, -1]", open: bool) -> int:  # type: ignore
         if not open:
             return bound
 
@@ -574,9 +540,7 @@ class FloatRange(_NumberRangeBase, FloatParamType):
         max_open: bool = False,
         clamp: bool = False,
     ) -> None:
-        super().__init__(
-            min=min, max=max, min_open=min_open, max_open=max_open, clamp=clamp
-        )
+        super().__init__(min=min, max=max, min_open=min_open, max_open=max_open, clamp=clamp)
 
         if (min_open or max_open) and clamp:
             raise TypeError("Clamping is not supported for open bounds.")
@@ -594,9 +558,7 @@ class FloatRange(_NumberRangeBase, FloatParamType):
 class BoolParamType(ParamType):
     name = "boolean"
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         if value in {False, True}:
             return bool(value)
 
@@ -608,9 +570,7 @@ class BoolParamType(ParamType):
         if norm in {"0", "false", "f", "no", "n", "off"}:
             return False
 
-        self.fail(
-            _("{value!r} is not a valid boolean.").format(value=value), param, ctx
-        )
+        self.fail(_("{value!r} is not a valid boolean.").format(value=value), param, ctx)
 
     def __repr__(self) -> str:
         return "BOOL"
@@ -619,9 +579,7 @@ class BoolParamType(ParamType):
 class UUIDParameterType(ParamType):
     name = "uuid"
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         import uuid
 
         if isinstance(value, uuid.UUID):
@@ -632,9 +590,7 @@ class UUIDParameterType(ParamType):
         try:
             return uuid.UUID(value)
         except ValueError:
-            self.fail(
-                _("{value!r} is not a valid UUID.").format(value=value), param, ctx
-            )
+            self.fail(_("{value!r} is not a valid UUID.").format(value=value), param, ctx)
 
     def __repr__(self) -> str:
         return "UUID"
@@ -716,18 +672,14 @@ class File(ParamType):
             lazy = self.resolve_lazy_flag(value)
 
             if lazy:
-                lf = LazyFile(
-                    value, self.mode, self.encoding, self.errors, atomic=self.atomic
-                )
+                lf = LazyFile(value, self.mode, self.encoding, self.errors, atomic=self.atomic)
 
                 if ctx is not None:
                     ctx.call_on_close(lf.close_intelligently)
 
                 return t.cast(t.IO[t.Any], lf)
 
-            f, should_close = open_stream(
-                value, self.mode, self.encoding, self.errors, atomic=self.atomic
-            )
+            f, should_close = open_stream(value, self.mode, self.encoding, self.errors, atomic=self.atomic)
 
             # If a context is provided, we automatically close the file
             # at the end of the context execution (or flush out).  If a
@@ -744,9 +696,7 @@ class File(ParamType):
         except OSError as e:
             self.fail(f"'{format_filename(value)}': {e.strerror}", param, ctx)
 
-    def shell_complete(
-        self, ctx: "Context", param: "Parameter", incomplete: str
-    ) -> t.List["CompletionItem"]:
+    def shell_complete(self, ctx: "Context", param: "Parameter", incomplete: str) -> t.List["CompletionItem"]:
         """Return a special completion marker that tells the completion
         system to use the shell to provide file path completions.
 
@@ -841,9 +791,7 @@ class Path(ParamType):
         )
         return info_dict
 
-    def coerce_path_result(
-        self, value: "t.Union[str, os.PathLike[str]]"
-    ) -> "t.Union[str, bytes, os.PathLike[str]]":
+    def coerce_path_result(self, value: "t.Union[str, os.PathLike[str]]") -> "t.Union[str, bytes, os.PathLike[str]]":
         if self.type is not None and not isinstance(value, self.type):
             if self.type is str:
                 return os.fsdecode(value)
@@ -887,9 +835,7 @@ class Path(ParamType):
 
             if not self.file_okay and stat.S_ISREG(st.st_mode):
                 self.fail(
-                    _("{name} {filename!r} is a file.").format(
-                        name=self.name.title(), filename=format_filename(value)
-                    ),
+                    _("{name} {filename!r} is a file.").format(name=self.name.title(), filename=format_filename(value)),
                     param,
                     ctx,
                 )
@@ -931,9 +877,7 @@ class Path(ParamType):
 
         return self.coerce_path_result(rv)
 
-    def shell_complete(
-        self, ctx: "Context", param: "Parameter", incomplete: str
-    ) -> t.List["CompletionItem"]:
+    def shell_complete(self, ctx: "Context", param: "Parameter", incomplete: str) -> t.List["CompletionItem"]:
         """Return a special completion marker that tells the completion
         system to use the shell to provide path completions for only
         directories or any paths.
@@ -980,9 +924,7 @@ class Tuple(CompositeParamType):
     def arity(self) -> int:  # type: ignore
         return len(self.types)
 
-    def convert(
-        self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]
-    ) -> t.Any:
+    def convert(self, value: t.Any, param: t.Optional["Parameter"], ctx: t.Optional["Context"]) -> t.Any:
         len_type = len(self.types)
         len_value = len(value)
 
@@ -1050,9 +992,7 @@ def convert_type(ty: t.Optional[t.Any], default: t.Optional[t.Any] = None) -> Pa
     if __debug__:
         try:
             if issubclass(ty, ParamType):
-                raise AssertionError(
-                    f"Attempted to use an uninstantiated parameter type ({ty})."
-                )
+                raise AssertionError(f"Attempted to use an uninstantiated parameter type ({ty}).")
         except TypeError:
             # ty is an instance (correct), so issubclass fails.
             pass
