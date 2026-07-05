@@ -19,11 +19,18 @@ def train_corner_models(
     print(f"Training XGBoost Corner Models (Mode: {mode.upper()})...")
     data_path = f"data/corners_training_data_{mode}.csv"
 
+    need_extract = False
     if not os.path.exists(data_path):
         print(f"Training data {data_path} not found. Running corner features extraction first...")
-        df = extract_corner_features(mode)
+        need_extract = True
     else:
         df = pd.read_csv(data_path)
+        if not all(col in df.columns for col in ["routine_lag_1", "hist_rate_routine_0", "consecutive_same_routine"]):
+            print(f"Training data {data_path} is missing newly engineered sequence features. Re-extracting...")
+            need_extract = True
+
+    if need_extract:
+        df = extract_corner_features(mode)
 
     if df is None or df.empty:
         print("No corner training data available.")
@@ -42,12 +49,18 @@ def train_corner_models(
         "opp_gk_save_ratio",
         "opp_def_rate",
         "under_pressure",
-        "prev_corner_routine_in_match",
         "corner_cluster_density",
         "aerial_height_advantage",
         "goalkeeper_line_command",
         "taker_corner_assist_rate",
-        "delivery_curve_match",
+        "routine_lag_1",
+        "routine_lag_2",
+        "routine_lag_3",
+        "routine_lag_4",
+        "routine_lag_5",
+        "hist_rate_routine_0",
+        "hist_rate_routine_2",
+        "consecutive_same_routine",
     ]
 
     X = df[feature_cols].fillna(0.0)

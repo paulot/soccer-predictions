@@ -37,6 +37,9 @@ class TestCornerFeatures(unittest.TestCase):
         self.assertFalse(df_out.empty)
         self.assertIn("target_routine", df_out.columns)
         self.assertIn("target_outcome", df_out.columns)
+        self.assertIn("routine_lag_1", df_out.columns)
+        self.assertIn("hist_rate_routine_0", df_out.columns)
+        self.assertIn("consecutive_same_routine", df_out.columns)
 
 
 if __name__ == "__main__":

@@ -180,12 +180,18 @@ def simulate_mcmc_possession_chain(
                 "opp_gk_save_ratio": 0.70,
                 "opp_def_rate": 0.15,
                 "under_pressure": 0,
-                "prev_corner_routine_in_match": -1,
                 "corner_cluster_density": 1,
                 "aerial_height_advantage": 0.0,
                 "goalkeeper_line_command": 0.70,
                 "taker_corner_assist_rate": 0.12,
-                "delivery_curve_match": 1,
+                "routine_lag_1": -1,
+                "routine_lag_2": -1,
+                "routine_lag_3": -1,
+                "routine_lag_4": -1,
+                "routine_lag_5": -1,
+                "hist_rate_routine_0": 0.75,
+                "hist_rate_routine_2": 0.10,
+                "consecutive_same_routine": 0,
             }])
 
             # Stage 1: Predict Routine

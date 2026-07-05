@@ -44,6 +44,7 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
         return pd.DataFrame()
 
     match_files: List[str] = [f for f in os.listdir(raw_dir) if f.endswith(".csv")]
+    match_files.sort(key=lambda f: int(f.split('.')[0]) if f.split('.')[0].isdigit() else 0)
 
     if mode == "iteration":
         match_files = match_files[:50]
@@ -52,6 +53,7 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
     dataset: List[Dict[str, Any]] = []
     taker_corners: Dict[str, int] = {}
     taker_assists: Dict[str, int] = {}
+    team_hist_routines: Dict[str, List[int]] = {}
 
     for idx, fname in enumerate(match_files):
         fpath = os.path.join(raw_dir, fname)
@@ -122,19 +124,19 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
             start_x, start_y = float(start_loc[0]), float(start_loc[1])
             is_right_corner = 1 if start_y > 40.0 else 0
 
-            # Determine end zone and Target Routine (Stage 1)
+            # Determine Target Routine (Stage 1) using Euclidean pass distance and spatial corridor
             end_loc = parse_location(row.get("pass_end_location"))
             if not end_loc or len(end_loc) < 2:
                 continue
             end_x, end_y = float(end_loc[0]), float(end_loc[1])
-            end_zone = map_coordinates_to_zone(end_x, end_y)
+            pass_dist = np.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
 
-            if end_zone == "Z_5_2":
-                target_routine = 0  # Direct Cross to Central Box
-            elif end_zone in ["Z_5_1", "Z_5_3"]:
-                target_routine = 1  # Direct Cross to Near/Far Post
+            if pass_dist < 22.0:
+                target_routine = 2  # Short Corner Routine (pass length < 22 yards to supporting teammate)
+            elif 30.0 <= end_y <= 50.0:
+                target_routine = 0  # Direct Cross to Central Box / Penalty Spot corridor
             else:
-                target_routine = 2  # Short Corner Routine / Outside box
+                target_routine = 1  # Direct Cross to Near / Far Posts or Wide Box
 
             # Determine Target Outcome (Stage 2: Attacking Success vs Defensive Success)
             target_outcome = 0
@@ -212,7 +214,26 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
             t_ast = taker_assists.get(taker, 0)
             taker_assist_rate = float(t_ast / t_count) if t_count > 0 else 0.12
 
-            delivery_curve_match = 1 if (inswinging == 1 and is_right_corner == 1) or (inswinging == 0 and is_right_corner == 0) else 0
+            # 4. Short-Term Lag Vector (last 5 routines across past games)
+            past_routines = team_hist_routines.get(corner_team, [])
+            lags = (past_routines[-5:] if len(past_routines) >= 5 else [ -1 ] * (5 - len(past_routines)) + past_routines)
+            recent_5 = list(reversed(lags))
+            r_lag_1, r_lag_2, r_lag_3, r_lag_4, r_lag_5 = recent_5[0], recent_5[1], recent_5[2], recent_5[3], recent_5[4]
+
+            # 5. Long-Term Rolling Rates over last 20 corners across past games
+            last_20 = past_routines[-20:]
+            n_20 = len(last_20)
+            rate_0 = float(last_20.count(0) / n_20) if n_20 > 0 else 0.75
+            rate_2 = float(last_20.count(2) / n_20) if n_20 > 0 else 0.10
+
+            # 6. Engineered Sequence Indicators
+            consec_same = 0
+            if r_lag_1 != -1:
+                for r in reversed(past_routines):
+                    if r == r_lag_1:
+                        consec_same += 1
+                    else:
+                        break
 
             dataset.append(
                 {
@@ -228,12 +249,18 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
                     "opp_gk_save_ratio": opp_gk_save,
                     "opp_def_rate": opp_def_rate,
                     "under_pressure": under_press,
-                    "prev_corner_routine_in_match": prev_routine,
                     "corner_cluster_density": cluster_count,
                     "aerial_height_advantage": aerial_adv,
                     "goalkeeper_line_command": gk_line_cmd,
                     "taker_corner_assist_rate": taker_assist_rate,
-                    "delivery_curve_match": delivery_curve_match,
+                    "routine_lag_1": r_lag_1,
+                    "routine_lag_2": r_lag_2,
+                    "routine_lag_3": r_lag_3,
+                    "routine_lag_4": r_lag_4,
+                    "routine_lag_5": r_lag_5,
+                    "hist_rate_routine_0": rate_0,
+                    "hist_rate_routine_2": rate_2,
+                    "consecutive_same_routine": consec_same,
                     "target_routine": target_routine,
                     "target_outcome": target_outcome,
                 }
@@ -241,6 +268,7 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
 
             # Update running stats
             team_prev_routine[corner_team] = target_routine
+            team_hist_routines.setdefault(corner_team, []).append(target_routine)
             taker_corners[taker] = t_count + 1
             if target_outcome == 1:
                 taker_assists[taker] = t_ast + 1
