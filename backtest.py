@@ -55,26 +55,33 @@ def simulate_full_match(
     home_mgr = manager_profiles.get(team_to_manager.get(home_team, ""), {"directness": 5.0, "width": 5.0, "tempo": 5.0})
     away_mgr = manager_profiles.get(team_to_manager.get(away_team, ""), {"directness": 5.0, "width": 5.0, "tempo": 5.0})
 
-    # Start with a kickoff (stochastically given to one team)
+    # Start with a goal kick (from the goalie whose team has the starting possession)
     current_team: str = np.random.choice([home_team, away_team])
-    current_zone: str = "Z_2_2"  # Start in central midfield
+    current_zone: str = "Z_0_2"  # Start at defensive penalty box (goal kick)
 
-    for _ in range(num_possessions):
+    for p_idx in range(num_possessions):
         chain_active: bool = True
+        player_on_ball: Optional[str] = (
+            (home_gk if current_team == home_team else away_gk) if (p_idx == 0 or current_zone == "Z_0_2") else None
+        )
 
         while chain_active:
+            start_x: int = int(current_zone.split("_")[1])
+            start_y: int = int(current_zone.split("_")[2])
+
             # Get players in this zone
             zone_players = get_zone_players(df_events, current_zone)
 
             # Filter for players who actually play for the team currently in possession
             team_zone_players = {p: w for p, w in zone_players.items() if player_to_team.get(p) == current_team}
 
-            player_on_ball: Optional[str] = None
-            if team_zone_players:
-                # Re-normalize weights
-                total_w = sum(team_zone_players.values())
-                team_zone_players = {p: w / total_w for p, w in team_zone_players.items()}
-                player_on_ball = np.random.choice(list(team_zone_players.keys()), p=list(team_zone_players.values()))
+            if player_on_ball is None or player_on_ball not in team_zone_players:
+                if team_zone_players:
+                    total_w = sum(team_zone_players.values())
+                    weights = {p: w / total_w for p, w in team_zone_players.items()}
+                    player_on_ball = np.random.choice(list(weights.keys()), p=list(weights.values()))
+                else:
+                    player_on_ball = None
 
             # Get baseline transition probabilities
             zone_probs = base_matrix.loc[current_zone].copy()
@@ -89,7 +96,6 @@ def simulate_full_match(
 
             # 2. Apply Manager Tactical Modifiers (Directness and Width)
             mgr = home_mgr if current_team == home_team else away_mgr
-            start_x: int = int(current_zone.split("_")[1])
 
             for zone in zones:
                 end_x: int = int(zone.split("_")[1])
@@ -108,9 +114,24 @@ def simulate_full_match(
                 else:
                     zone_probs[zone] *= 1.0 - (mgr["width"] - 5) * 0.04
 
-            # Re-normalize after manager modifications
+            # --- FSM RULE 1 & 4: Teammate Occupancy Masking & Kinematic Distance Bounding ---
+            for target_zone in zones:
+                tx, ty = int(target_zone.split("_")[1]), int(target_zone.split("_")[2])
+                dist = np.sqrt((tx - start_x) ** 2 + (ty - start_y) ** 2)
+                if dist > 3.5:
+                    zone_probs[target_zone] = 0.0
+                    continue
+                target_players = get_zone_players(df_events, target_zone)
+                teammate_count = sum(1 for p in target_players.keys() if player_to_team.get(p) == current_team)
+                if teammate_count == 0 and target_zone != current_zone:
+                    zone_probs[target_zone] = 0.0
+
+            # Re-normalize after manager & physical masking
             if zone_probs.sum() > 0:
                 zone_probs = zone_probs / zone_probs.sum()
+            else:
+                zone_probs = pd.Series(0.0, index=zones)
+                zone_probs[current_zone] = 1.0
 
             # Sample next zone
             next_zone = np.random.choice(base_matrix.columns, p=zone_probs.values)
@@ -138,9 +159,10 @@ def simulate_full_match(
                     else:
                         away_goals += 1
 
-                # Goal ends possession, opponent kicks off from center
+                # Goal ends possession, opponent restarts with a goal kick from their goalie
                 current_team = away_team if current_team == home_team else home_team
-                current_zone = "Z_2_2"
+                current_zone = "Z_0_2"
+                player_on_ball = home_gk if current_team == home_team else away_gk
                 chain_active = False
 
             # 2. Turnover (dynamically determined by player accuracy + opponent defensive pressure)
@@ -158,9 +180,40 @@ def simulate_full_match(
                 if np.random.rand() < turnover_prob:
                     current_team = defending_team
                     current_zone = next_zone
+                    player_on_ball = None
                     chain_active = False
                 else:
-                    current_zone = next_zone
+                    next_x: int = int(next_zone.split("_")[1])
+                    next_y: int = int(next_zone.split("_")[2])
+                    dist_x = abs(next_x - start_x)
+                    dist_y = abs(next_y - start_y)
+
+                    # --- FSM RULE 2: Classify non-shot action as Hold, Carry, or Pass ---
+                    if next_zone == current_zone:
+                        # Hold / Delay: same player retains ball
+                        pass
+                    elif dist_x <= 1 and dist_y <= 1 and np.random.rand() < 0.35:
+                        # Carry / Run: same player moves with ball
+                        current_zone = next_zone
+                    else:
+                        # Pass: transfer to teammate in next_zone
+                        current_zone = next_zone
+                        target_players = get_zone_players(df_events, next_zone)
+                        team_targets = {
+                            p: w
+                            for p, w in target_players.items()
+                            if player_to_team.get(p) == current_team and p != player_on_ball
+                        }
+                        if not team_targets:
+                            team_targets = {
+                                p: w for p, w in target_players.items() if player_to_team.get(p) == current_team
+                            }
+                        if team_targets:
+                            total_w = sum(team_targets.values())
+                            weights = {p: w / total_w for p, w in team_targets.items()}
+                            player_on_ball = np.random.choice(list(weights.keys()), p=list(weights.values()))
+                        else:
+                            player_on_ball = None
 
     return home_goals, away_goals
 

@@ -35,6 +35,8 @@ def build_self_contained_pipeline(
         "Premier League",
         "1. Bundesliga",
         "Ligue 1",
+        "Serie A",
+        "Major League Soccer",
     ]
 
     selected_competitions = competitions[competitions["competition_name"].isin(target_comp_names)]

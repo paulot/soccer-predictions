@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import numpy as np
 import pandas as pd
 from mcmc_simulation import (
@@ -134,6 +134,71 @@ class TestMCMCSimulation(unittest.TestCase):
         self.assertEqual(chain[2], "Z_5_2")
         # Should stop after entering penalty box (Z_5_2)
         self.assertEqual(len(chain), 3)
+
+    @patch("builtins.print")
+    def test_mcmc_corner_scenario_calls_routine_model(self, mock_print):
+        """Test that in a corner kick scenario (Z_5_4), the corner routine model is leveraged."""
+        zones = ["Z_5_4", "Z_5_2", "Z_4_4"]
+        base_matrix = pd.DataFrame(np.eye(3), index=zones, columns=zones)
+        df_events = pd.DataFrame({"start_zone": ["Z_5_4"], "player": ["Player A"]})
+        player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
+
+        mock_routine = MagicMock()
+        mock_routine.predict_proba.return_value = np.array([[1.0, 0.0, 0.0]])  # Predict Direct Central Box (0)
+
+        mock_outcome = MagicMock()
+        mock_outcome.predict_proba.return_value = np.array([0.8])
+
+        chain = simulate_mcmc_possession_chain(
+            "Z_5_4", base_matrix, df_events, player_profiles, zones, max_steps=3,
+            routine_model=mock_routine, outcome_model=mock_outcome
+        )
+        mock_routine.predict_proba.assert_called_once()
+        self.assertEqual(chain[1], "Z_5_2")
+
+    @patch("builtins.print")
+    def test_mcmc_short_corner_bypasses_outcome_model(self, mock_print):
+        """Test that for a short corner (routine 2), the outcome model is NOT called and play continues in open play."""
+        zones = ["Z_5_4", "Z_4_4", "Z_3_4", "Z_4_0"]
+        base_matrix = pd.DataFrame(np.eye(4), index=zones, columns=zones)
+        df_events = pd.DataFrame({"start_zone": ["Z_5_4", "Z_4_4"], "player": ["Player A", "Player A"]})
+        player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
+
+        mock_routine = MagicMock()
+        mock_routine.predict_proba.return_value = np.array([[0.0, 0.0, 1.0]])  # Predict Short Corner (2)
+
+        mock_outcome = MagicMock()
+        mock_outcome.predict_proba.return_value = np.array([0.5])
+
+        chain = simulate_mcmc_possession_chain(
+            "Z_5_4", base_matrix, df_events, player_profiles, zones, max_steps=3,
+            routine_model=mock_routine, outcome_model=mock_outcome
+        )
+        mock_routine.predict_proba.assert_called_once()
+        mock_outcome.predict_proba.assert_not_called()
+        self.assertIn(chain[1], ["Z_4_0", "Z_4_4"])
+
+    @patch("builtins.print")
+    def test_mcmc_direct_corner_calls_outcome_model(self, mock_print):
+        """Test that for a non-short corner (routine 0 or 1), the outcome model IS called."""
+        zones = ["Z_5_4", "Z_5_1", "Z_5_3"]
+        base_matrix = pd.DataFrame(np.eye(3), index=zones, columns=zones)
+        df_events = pd.DataFrame({"start_zone": ["Z_5_4"], "player": ["Player A"]})
+        player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
+
+        mock_routine = MagicMock()
+        mock_routine.predict_proba.return_value = np.array([[0.0, 1.0, 0.0]])  # Predict Post Cross (1)
+
+        mock_outcome = MagicMock()
+        mock_outcome.predict_proba.return_value = np.array([0.9])
+
+        chain = simulate_mcmc_possession_chain(
+            "Z_5_4", base_matrix, df_events, player_profiles, zones, max_steps=3,
+            routine_model=mock_routine, outcome_model=mock_outcome
+        )
+        mock_routine.predict_proba.assert_called_once()
+        mock_outcome.predict_proba.assert_called_once()
+        self.assertIn(chain[1], ["Z_5_1", "Z_5_3"])
 
 
 if __name__ == "__main__":

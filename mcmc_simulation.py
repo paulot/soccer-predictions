@@ -1,7 +1,9 @@
+import os
 import numpy as np
 import pandas as pd
 from utils import map_coordinates_to_zone
-from typing import List, Dict
+from typing import List, Dict, Optional
+from ml_model.corners.models import CornerRoutineXGB, CornerOutcomeXGB
 
 try:
     from statsbombpy import sb
@@ -138,6 +140,8 @@ def simulate_mcmc_possession_chain(
     player_profiles: Dict[str, Dict[str, float]],
     zones: List[str],
     max_steps: int = 10,
+    routine_model: Optional[CornerRoutineXGB] = None,
+    outcome_model: Optional[CornerOutcomeXGB] = None,
 ) -> List[str]:
     """
     Simulates a possession chain, dynamically selecting the player on the ball
@@ -156,6 +160,63 @@ def simulate_mcmc_possession_chain(
 
         # Select player stochastically based on who played in this zone
         player_on_ball = np.random.choice(list(zone_players.keys()), p=list(zone_players.values()))
+
+        # Check if Corner Kick Scenario (Z_5_0 is left corner flag, Z_5_4 is right corner flag)
+        if current_zone in ["Z_5_0", "Z_5_4"] and routine_model is not None and outcome_model is not None:
+            print(f"Step {step+1}: 🚩 Corner Kick Scenario in {current_zone}! Leveraged trained Corner Models.")
+            is_right = 1 if current_zone == "Z_5_4" else 0
+            profile = player_profiles.get(player_on_ball, {}) if player_on_ball else {}
+
+            corner_features = pd.DataFrame([{
+                "is_right_corner": is_right,
+                "time_ratio": 0.5,
+                "score_differential": 0,
+                "is_home_team": 1,
+                "inswinging": 1,
+                "taker_accuracy": profile.get("accuracy", 0.78),
+                "taker_key_pass_ratio": profile.get("progressive_ratio", 0.22),
+                "team_directness": 5.0,
+                "team_width": 5.0,
+                "opp_gk_save_ratio": 0.70,
+                "opp_def_rate": 0.15,
+                "under_pressure": 0,
+                "prev_corner_routine_in_match": -1,
+                "corner_cluster_density": 1,
+                "aerial_height_advantage": 0.0,
+                "goalkeeper_line_command": 0.70,
+                "taker_corner_assist_rate": 0.12,
+                "delivery_curve_match": 1,
+            }])
+
+            # Stage 1: Predict Routine
+            r_probs = routine_model.predict_proba(corner_features)[0]
+            routine = np.random.choice([0, 1, 2], p=r_probs)
+
+            if routine == 0:
+                next_zone = "Z_5_2"
+                r_name = "Direct Central Box (Z_5_2)"
+            elif routine == 1:
+                next_zone = np.random.choice(["Z_5_1", "Z_5_3"])
+                r_name = f"Post Cross ({next_zone})"
+            else:
+                next_zone = np.random.choice(["Z_4_0", "Z_4_4"])
+                r_name = f"Short Corner ({next_zone})"
+
+            print(f"  -> Stage 1 Routine Prediction: {r_name} [Probs: {r_probs.round(2)}]")
+
+            # Stage 2: Predict Outcome (ONLY for Direct Crosses!)
+            if routine == 2:
+                print(f"  -> Short Corner selected! Outcome model bypassed; play continues as normal open play in {next_zone}.")
+                current_zone = next_zone
+                chain.append(next_zone)
+                continue
+            else:
+                o_prob = outcome_model.predict_proba(corner_features)[0]
+                outcome = 1 if np.random.rand() < o_prob else 0
+                outcome_str = "ATTACKING SUCCESS (Shot/Goal Opportunity in Box!)" if outcome == 1 else "DEFENSIVE SUCCESS (Clearance/Catch)"
+                print(f"  -> Stage 2 Outcome Prediction: {outcome_str} [Success Prob: {o_prob:.1%}]")
+                chain.append(next_zone)
+                break
 
         # 2. Get baseline probabilities for this zone
         zone_probs = base_matrix.loc[current_zone].copy()
@@ -180,8 +241,8 @@ def simulate_mcmc_possession_chain(
         print(f"Step {step+1}: {player_info} in {current_zone} -> passes to {next_zone}")
         current_zone = next_zone
 
-        # End if ball enters the box
-        if current_zone.startswith("Z_5_"):
+        # End if ball enters the penalty box (Z_5_1, Z_5_2, Z_5_3)
+        if current_zone in ["Z_5_1", "Z_5_2", "Z_5_3"]:
             print("Outcome: Ball entered the attacking penalty box! (Shot opportunity)")
             break
 
@@ -217,6 +278,22 @@ if __name__ == "__main__":
                 f"- {p_name}: Accuracy={prof['accuracy']:.2f}, Progressive Ratio={prof['progressive_ratio']:.2f} (Total Passes: {prof['total_passes']})"  # noqa: E501
             )
 
-    # 3. Run MCMC Simulations with Player Modifiers
-    simulate_mcmc_possession_chain("Z_2_2", matrix_df, df, profiles_dict, zones_list)
-    simulate_mcmc_possession_chain("Z_3_2", matrix_df, df, profiles_dict, zones_list)
+    # 3. Load Trained Corner Models if available
+    routine_model, outcome_model = None, None
+    try:
+        if os.path.exists("data/models/corner_routine_xgb_production.pkl"):
+            routine_model = CornerRoutineXGB.load("data/models/corner_routine_xgb_production.pkl")
+            outcome_model = CornerOutcomeXGB.load("data/models/corner_outcome_xgb_production.pkl")
+        elif os.path.exists("data/models/corner_routine_xgb_iteration.pkl"):
+            routine_model = CornerRoutineXGB.load("data/models/corner_routine_xgb_iteration.pkl")
+            outcome_model = CornerOutcomeXGB.load("data/models/corner_outcome_xgb_iteration.pkl")
+        if routine_model and outcome_model:
+            print("\nSuccessfully loaded trained Corner Routine and Outcome models.")
+    except Exception as e:
+        print(f"\nNotice: Could not load corner models ({e}). Corner scenarios will use baseline transitions.")
+
+    # 4. Run MCMC Simulations with Player Modifiers and Corner Models
+    simulate_mcmc_possession_chain("Z_2_2", matrix_df, df, profiles_dict, zones_list, routine_model=routine_model, outcome_model=outcome_model)
+    simulate_mcmc_possession_chain("Z_3_2", matrix_df, df, profiles_dict, zones_list, routine_model=routine_model, outcome_model=outcome_model)
+    simulate_mcmc_possession_chain("Z_5_4", matrix_df, df, profiles_dict, zones_list, routine_model=routine_model, outcome_model=outcome_model)
+    simulate_mcmc_possession_chain("Z_5_0", matrix_df, df, profiles_dict, zones_list, routine_model=routine_model, outcome_model=outcome_model)
