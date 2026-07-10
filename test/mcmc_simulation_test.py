@@ -144,7 +144,7 @@ class TestMCMCSimulation(unittest.TestCase):
         player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
 
         mock_routine = MagicMock()
-        mock_routine.predict_proba.return_value = np.array([[1.0, 0.0, 0.0]])  # Predict Direct Central Box (0)
+        mock_routine.predict_proba.return_value = np.array([[0.0, 0.0, 1.0, 0.0]])  # Predict Direct Central Box (2)
 
         mock_outcome = MagicMock()
         mock_outcome.predict_proba.return_value = np.array([0.8])
@@ -165,7 +165,7 @@ class TestMCMCSimulation(unittest.TestCase):
         player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
 
         mock_routine = MagicMock()
-        mock_routine.predict_proba.return_value = np.array([[0.0, 0.0, 1.0]])  # Predict Short Corner (2)
+        mock_routine.predict_proba.return_value = np.array([[1.0, 0.0, 0.0, 0.0]])  # Predict Short Corner (0)
 
         mock_outcome = MagicMock()
         mock_outcome.predict_proba.return_value = np.array([0.5])
@@ -187,7 +187,7 @@ class TestMCMCSimulation(unittest.TestCase):
         player_profiles = {"Player A": {"accuracy": 0.8, "progressive_ratio": 0.3, "total_passes": 10}}
 
         mock_routine = MagicMock()
-        mock_routine.predict_proba.return_value = np.array([[0.0, 1.0, 0.0]])  # Predict Post Cross (1)
+        mock_routine.predict_proba.return_value = np.array([[0.0, 1.0, 0.0, 0.0]])  # Predict 1st Post Cross (1)
 
         mock_outcome = MagicMock()
         mock_outcome.predict_proba.return_value = np.array([0.9])

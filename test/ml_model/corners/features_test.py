@@ -38,8 +38,11 @@ class TestCornerFeatures(unittest.TestCase):
         self.assertIn("target_routine", df_out.columns)
         self.assertIn("target_outcome", df_out.columns)
         self.assertIn("routine_lag_1", df_out.columns)
-        self.assertIn("hist_rate_routine_0", df_out.columns)
+        self.assertIn("hist_rate_routine_3", df_out.columns)
+        self.assertIn("hist_rate_routine_1", df_out.columns)
         self.assertIn("consecutive_same_routine", df_out.columns)
+        self.assertIn("delivery_distance", df_out.columns)
+        self.assertIn("end_zone", df_out.columns)
 
 
 if __name__ == "__main__":

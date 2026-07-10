@@ -189,29 +189,33 @@ def simulate_mcmc_possession_chain(
                 "routine_lag_3": -1,
                 "routine_lag_4": -1,
                 "routine_lag_5": -1,
-                "hist_rate_routine_0": 0.75,
-                "hist_rate_routine_2": 0.10,
+                "hist_rate_routine_0": 0.25,
+                "hist_rate_routine_1": 0.25,
+                "hist_rate_routine_2": 0.25,
                 "consecutive_same_routine": 0,
             }])
 
-            # Stage 1: Predict Routine
+            # Stage 1: Predict Routine (0: Short, 1: 1st Post, 2: Center, 3: 2nd Post)
             r_probs = routine_model.predict_proba(corner_features)[0]
-            routine = np.random.choice([0, 1, 2], p=r_probs)
+            routine = np.random.choice([0, 1, 2, 3], p=r_probs)
 
             if routine == 0:
+                next_zone = "Z_4_0" if current_zone == "Z_5_0" else "Z_4_4"
+                r_name = f"Short Corner ({next_zone})"
+            elif routine == 1:
+                next_zone = "Z_5_1" if current_zone == "Z_5_0" else "Z_5_3"
+                r_name = f"1st Post Cross ({next_zone})"
+            elif routine == 2:
                 next_zone = "Z_5_2"
                 r_name = "Direct Central Box (Z_5_2)"
-            elif routine == 1:
-                next_zone = np.random.choice(["Z_5_1", "Z_5_3"])
-                r_name = f"Post Cross ({next_zone})"
             else:
-                next_zone = np.random.choice(["Z_4_0", "Z_4_4"])
-                r_name = f"Short Corner ({next_zone})"
+                next_zone = "Z_5_3" if current_zone == "Z_5_0" else "Z_5_1"
+                r_name = f"2nd Post Cross ({next_zone})"
 
             print(f"  -> Stage 1 Routine Prediction: {r_name} [Probs: {r_probs.round(2)}]")
 
             # Stage 2: Predict Outcome (ONLY for Direct Crosses!)
-            if routine == 2:
+            if routine == 0:
                 print(f"  -> Short Corner selected! Outcome model bypassed; play continues as normal open play in {next_zone}.")
                 current_zone = next_zone
                 chain.append(next_zone)

@@ -25,7 +25,7 @@ def train_corner_models(
         need_extract = True
     else:
         df = pd.read_csv(data_path)
-        if not all(col in df.columns for col in ["routine_lag_1", "hist_rate_routine_0", "consecutive_same_routine"]):
+        if not all(col in df.columns for col in ["routine_lag_1", "hist_rate_routine_3", "team_match_corner_count", "consecutive_same_routine"]):
             print(f"Training data {data_path} is missing newly engineered sequence features. Re-extracting...")
             need_extract = True
 
@@ -45,8 +45,6 @@ def train_corner_models(
         "taker_accuracy",
         "taker_key_pass_ratio",
         "team_directness",
-        "team_width",
-        "opp_gk_save_ratio",
         "opp_def_rate",
         "under_pressure",
         "corner_cluster_density",
@@ -58,8 +56,10 @@ def train_corner_models(
         "routine_lag_3",
         "routine_lag_4",
         "routine_lag_5",
-        "hist_rate_routine_0",
+        "hist_rate_routine_1",
         "hist_rate_routine_2",
+        "hist_rate_routine_3",
+        "team_match_corner_count",
         "consecutive_same_routine",
     ]
 
@@ -72,13 +72,13 @@ def train_corner_models(
     )
 
     # 1. Train Corner Routine Classifier
-    print("\n--- Training Stage 1: Corner Routine XGBoost Classifier (3-Class) ---")
+    print("\n--- Training Stage 1: Corner Routine XGBoost Classifier (4-Class, Focal Loss + Subsampling + Regularized Depth/Leaves) ---")
     routine_model = CornerRoutineXGB()
     if tune:
         print("  Tuning Stage 1 hyperparameters...")
         best_params_r = routine_model.tune_hyperparameters(X_train, y_r_train, scoring="f1_macro")
         print(f"  Best Routine Params: {best_params_r}")
-    routine_model.fit(X_train, y_r_train, use_class_weights=False)
+    routine_model.fit(X_train, y_r_train, use_class_weights=use_class_weights)
 
     r_preds = routine_model.predict(X_test)
     r_probs = routine_model.predict_proba(X_test)

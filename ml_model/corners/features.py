@@ -130,13 +130,20 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
                 continue
             end_x, end_y = float(end_loc[0]), float(end_loc[1])
             pass_dist = np.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
+            end_zone = map_coordinates_to_zone(end_x, end_y)
 
-            if pass_dist < 22.0:
-                target_routine = 2  # Short Corner Routine (pass length < 22 yards to supporting teammate)
-            elif 30.0 <= end_y <= 50.0:
-                target_routine = 0  # Direct Cross to Central Box / Penalty Spot corridor
+            parts = end_zone.split("_")
+            zy = int(parts[2]) if len(parts) == 3 else 2
+            std_zy = zy if is_right_corner == 0 else (4 - zy)
+
+            if std_zy == 0:
+                target_routine = 0  # 1) Short corner: closest strip to flag (zy=0 for left, zy=4 for right)
+            elif std_zy == 1:
+                target_routine = 1  # 2) 1st post: next set of zones (zy=1 for left, zy=3 for right)
+            elif std_zy == 2:
+                target_routine = 2  # 3) Center: central goalmouth / penalty spot corridor (zy=2)
             else:
-                target_routine = 1  # Direct Cross to Near / Far Posts or Wide Box
+                target_routine = 3  # 4) 2nd post: remaining far areas (zy in [3, 4] for left, [1, 0] for right)
 
             # Determine Target Outcome (Stage 2: Attacking Success vs Defensive Success)
             target_outcome = 0
@@ -223,8 +230,9 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
             # 5. Long-Term Rolling Rates over last 20 corners across past games
             last_20 = past_routines[-20:]
             n_20 = len(last_20)
-            rate_0 = float(last_20.count(0) / n_20) if n_20 > 0 else 0.75
-            rate_2 = float(last_20.count(2) / n_20) if n_20 > 0 else 0.10
+            rate_0 = float(last_20.count(0) / n_20) if n_20 > 0 else 0.25
+            rate_1 = float(last_20.count(1) / n_20) if n_20 > 0 else 0.25
+            rate_2 = float(last_20.count(2) / n_20) if n_20 > 0 else 0.25
 
             # 6. Engineered Sequence Indicators
             consec_same = 0
@@ -234,6 +242,18 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
                         consec_same += 1
                     else:
                         break
+
+            # 6. Engineered Sequence Indicators & Pre-Kick Context
+            consec_same = 0
+            if r_lag_1 != -1:
+                for r in reversed(past_routines):
+                    if r == r_lag_1:
+                        consec_same += 1
+                    else:
+                        break
+
+            rate_3 = float(last_20.count(3) / n_20) if n_20 > 0 else 0.25
+            team_match_corners = len(times_list)
 
             dataset.append(
                 {
@@ -245,8 +265,6 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
                     "taker_accuracy": taker_acc,
                     "taker_key_pass_ratio": taker_kp,
                     "team_directness": team_dir,
-                    "team_width": team_wid,
-                    "opp_gk_save_ratio": opp_gk_save,
                     "opp_def_rate": opp_def_rate,
                     "under_pressure": under_press,
                     "corner_cluster_density": cluster_count,
@@ -258,9 +276,17 @@ def extract_corner_features(mode: str = "iteration") -> pd.DataFrame:
                     "routine_lag_3": r_lag_3,
                     "routine_lag_4": r_lag_4,
                     "routine_lag_5": r_lag_5,
-                    "hist_rate_routine_0": rate_0,
+                    "hist_rate_routine_1": rate_1,
                     "hist_rate_routine_2": rate_2,
+                    "hist_rate_routine_3": rate_3,
+                    "team_match_corner_count": team_match_corners,
                     "consecutive_same_routine": consec_same,
+                    "delivery_distance": float(pass_dist),
+                    "end_zone": end_zone,
+                    "end_x": float(end_x),
+                    "end_y": float(end_y),
+                    "start_x": float(start_x),
+                    "start_y": float(start_y),
                     "target_routine": target_routine,
                     "target_outcome": target_outcome,
                 }

@@ -23,8 +23,6 @@ class TestCornerTrain(unittest.TestCase):
                 "taker_accuracy": [0.8] * 40,
                 "taker_key_pass_ratio": [0.2] * 40,
                 "team_directness": [5.0] * 40,
-                "team_width": [5.0] * 40,
-                "opp_gk_save_ratio": [0.7] * 40,
                 "opp_def_rate": [0.15] * 40,
                 "under_pressure": [0, 1, 0, 1] * 10,
                 "corner_cluster_density": [0, 1, 0, 2] * 10,
@@ -36,10 +34,15 @@ class TestCornerTrain(unittest.TestCase):
                 "routine_lag_3": [-1, 0, 1, 2] * 10,
                 "routine_lag_4": [-1, 0, 1, 2] * 10,
                 "routine_lag_5": [-1, 0, 1, 2] * 10,
-                "hist_rate_routine_0": [0.75] * 40,
+                "hist_rate_routine_1": [0.15] * 40,
                 "hist_rate_routine_2": [0.10] * 40,
+                "hist_rate_routine_3": [0.00] * 40,
+                "team_match_corner_count": [1, 2, 3, 4] * 10,
                 "consecutive_same_routine": [0, 1, 2, 0] * 10,
-                "target_routine": [0, 1, 2, 0] * 10,
+                "end_zone": ["Z_5_2", "Z_5_1", "Z_5_0", "Z_5_2"] * 10,
+                "end_x": [108.0, 114.0, 110.0, 105.0] * 10,
+                "end_y": [40.0, 25.0, 10.0, 42.0] * 10,
+                "target_routine": [0, 1, 2, 3] * 10,
                 "target_outcome": [0, 1, 0, 1] * 10,
             }
         )
@@ -47,7 +50,7 @@ class TestCornerTrain(unittest.TestCase):
 
         mock_routine_inst = MagicMock()
         mock_routine_inst.predict.return_value = np.zeros(8)
-        mock_routine_inst.predict_proba.return_value = np.ones((8, 3)) / 3.0
+        mock_routine_inst.predict_proba.return_value = np.ones((8, 4)) / 4.0
         mock_routine_inst.tune_hyperparameters.return_value = {"max_depth": 4}
         mock_routine_cls.return_value = mock_routine_inst
 

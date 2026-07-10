@@ -9,33 +9,59 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import f1_score
 
 
+def multi_focal_loss_obj(y_true: np.ndarray, y_pred: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> Any:
+    """
+    Custom Multi-Class Focal Loss objective for XGBoost (gamma=2.0).
+    Down-weights easy-to-classify majority examples (e.g., Central Box crosses)
+    to focus tree capacity on hard tactical boundary cases across all 4 corridors.
+    """
+    gamma = 2.0
+    exp_logits = np.exp(y_pred - np.max(y_pred, axis=1, keepdims=True))
+    p = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+    n_samples, _ = y_pred.shape
+    y_onehot = np.zeros_like(p)
+    y_onehot[np.arange(n_samples), y_true.astype(int)] = 1.0
+    p_t = np.sum(p * y_onehot, axis=1, keepdims=True)
+    p_t = np.clip(p_t, 1e-6, 1.0 - 1e-6)
+    M_i = (1.0 - p_t) ** gamma - gamma * p_t * ((1.0 - p_t) ** (gamma - 1.0)) * np.log(p_t)
+    grad = M_i * (p - y_onehot)
+    hess = np.maximum(M_i * p * (1.0 - p), 1e-6)
+    if sample_weight is not None:
+        grad *= sample_weight[:, None]
+        hess *= sample_weight[:, None]
+    return grad, hess
+
+
 class CornerRoutineXGB:
     """
-    XGBoost 3-class classifier predicting Corner Routine:
-    0: Direct Cross to Central Box (Z_5_2)
-    1: Direct Cross to Posts (Z_5_1 / Z_5_3)
-    2: Short Corner Routine (Other zones)
+    XGBoost 4-class classifier predicting Corner Routine:
+    0: Short Corner / Near Side Corridor (closest strip to flag: zy=0 for left, zy=4 for right)
+    1: 1st Post / Near Post Corridor (zy=1 for left, zy=3 for right)
+    2: Center / Central Goalmouth Corridor (zy=2)
+    3: 2nd Post / Far Post Corridor (zy in [3, 4] for left, [1, 0] for right)
     """
 
     def __init__(
         self,
-        max_depth: int = 4,
+        max_depth: int = 3,
         learning_rate: float = 0.05,
         n_estimators: int = 150,
-        colsample_bytree: float = 1.0,
-        min_child_weight: int = 1,
+        colsample_bytree: float = 0.6,
+        colsample_bylevel: float = 0.7,
+        min_child_weight: int = 15,
         subsample: float = 1.0,
-        reg_alpha: float = 0.0,
-        reg_lambda: float = 1.0,
+        reg_alpha: float = 1.0,
+        reg_lambda: float = 2.0,
     ):
         self.model = xgb.XGBClassifier(
-            objective="multi:softprob",
-            num_class=3,
+            objective=multi_focal_loss_obj,
+            num_class=4,
             eval_metric="mlogloss",
             max_depth=max_depth,
             learning_rate=learning_rate,
             n_estimators=n_estimators,
             colsample_bytree=colsample_bytree,
+            colsample_bylevel=colsample_bylevel,
             min_child_weight=min_child_weight,
             subsample=subsample,
             reg_alpha=reg_alpha,
@@ -48,7 +74,7 @@ class CornerRoutineXGB:
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        use_class_weights: bool = False,
+        use_class_weights: bool = True,
         sample_weight: Optional[np.ndarray] = None,
     ) -> None:
         self.feature_names = list(X.columns)
@@ -72,11 +98,11 @@ class CornerRoutineXGB:
     ) -> Dict[str, Any]:
         if param_grid is None:
             param_grid = {
-                "max_depth": [3, 4, 6],
+                "max_depth": [2, 3, 4],
                 "learning_rate": [0.03, 0.05, 0.1],
                 "n_estimators": [100, 150, 200],
-                "colsample_bytree": [0.7, 0.8, 1.0],
-                "min_child_weight": [1, 3, 5],
+                "colsample_bytree": [0.5, 0.6, 0.7],
+                "min_child_weight": [10, 15, 20],
             }
         search = GridSearchCV(self.model, param_grid, cv=cv, scoring=scoring, n_jobs=-1)
         search.fit(X_train, y_train)

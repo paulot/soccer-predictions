@@ -17,7 +17,7 @@ class TestCornerModels(unittest.TestCase):
                 "f2": np.random.rand(50),
             }
         )
-        self.y_routine = pd.Series(np.random.choice([0, 1, 2], size=50))
+        self.y_routine = pd.Series(np.random.choice([0, 1, 2, 3], size=50))
         self.y_outcome = pd.Series(np.random.choice([0, 1], size=50))
 
     def tearDown(self):
@@ -32,7 +32,7 @@ class TestCornerModels(unittest.TestCase):
         probs = model.predict_proba(self.X)
 
         self.assertEqual(len(preds), 50)
-        self.assertEqual(probs.shape, (50, 3))
+        self.assertEqual(probs.shape, (50, 4))
 
         imp = model.get_feature_importance()
         self.assertIn("f1", imp)
